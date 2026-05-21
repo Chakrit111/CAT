@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CatPrompt">
+<meta name="theme-color" content="#534AB7">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<title>Cat Prompt Generator</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;touch-action:manipulation}
+:root{
+  --p:#534AB7;--pl:#EEEDFE;--pb:#7F77DD;--pd:#3C3489;
+  --w:#fff;--g1:#fafafa;--g2:#f0f0f0;--g3:#e5e7eb;
+  --g4:#9ca3af;--g5:#6b7280;--g9:#1a1a2e;
+  --r4:8px;--r6:12px;--r8:18px;
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-l:env(safe-area-inset-left,0px);
+  --safe-r:env(safe-area-inset-right,0px);
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue','Noto Sans Thai',sans-serif;
+  font-size:15px;line-height:1.5;color:var(--g9);
+  background:#534AB7;
+  min-height:100dvh;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+
+/* ── Status bar spacer ── */
+.status-bar{
+  height:max(44px, calc(44px + var(--safe-t)));
+  background:#534AB7;
+  display:flex;align-items:flex-end;justify-content:center;
+  padding-bottom:8px;
+}
+.status-bar-title{color:#fff;font-size:13px;font-weight:600;opacity:.85}
+
+/* ── App header ── */
+.app-header{
+  background:#534AB7;
+  padding:0 18px 18px;
+  text-align:center;
+}
+.app-header h1{font-size:22px;font-weight:800;color:#fff;line-height:1.2}
+.app-header h1 em{font-style:normal;opacity:.85}
+.app-header p{font-size:12px;color:rgba(255,255,255,.7);margin-top:4px}
+
+/* ── Main scroll area ── */
+.main{
+  background:#f0eef8;
+  border-radius:22px 22px 0 0;
+  min-height:calc(100dvh - 130px);
+  padding:20px 16px calc(max(28px, var(--safe-b)) + 70px);
+  padding-left:max(16px, calc(16px + var(--safe-l)));
+  padding-right:max(16px, calc(16px + var(--safe-r)));
+}
+
+/* ── Tab bar (top of main) ── */
+.tabbar{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:6px;margin-bottom:16px;
+}
+.tb{
+  padding:10px 2px;
+  border:1.5px solid var(--g3);border-radius:var(--r4);
+  background:var(--w);color:var(--g5);
+  font-size:12px;font-weight:600;font-family:inherit;
+  text-align:center;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;touch-action:manipulation;
+  min-height:44px;display:flex;align-items:center;justify-content:center;
+  line-height:1.3;transition:all .12s;
+}
+.tb.on{background:var(--pl);border-color:var(--pb);color:var(--pd);font-weight:700}
+
+/* ── Panes ── */
+.pane{display:none}.pane.on{display:block}
+
+/* ── Section block ── */
+.blk{
+  background:var(--w);border:1px solid #e8e8e8;
+  border-radius:var(--r6);padding:14px 15px;
+  margin-bottom:12px;overflow:hidden;
+}
+.blk-t{font-size:13px;font-weight:700;color:var(--g9);margin-bottom:11px}
+
+/* ── Label ── */
+.lbl{display:block;font-size:10.5px;font-weight:700;color:var(--g4);
+  text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+
+.fld{margin-bottom:12px}.fld:last-child{margin-bottom:0}
+
+/* ── Inputs ── */
+input[type=text],select,textarea{
+  display:block;width:100%;min-width:0;
+  font-size:16px;font-family:inherit;color:var(--g9);
+  background:var(--w);border:1.5px solid var(--g3);
+  border-radius:var(--r4);padding:12px 14px;
+  outline:none;-webkit-appearance:none;appearance:none;
+  transition:border-color .15s;
+}
+input[type=text]:focus,select:focus,textarea:focus{
+  border-color:var(--pb);
+  box-shadow:0 0 0 3px rgba(127,119,221,.13);
+}
+select{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1 1l4.5 4.5L10 1' stroke='%239ca3af' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 13px center;
+  padding-right:36px;cursor:pointer;
+}
+textarea{resize:vertical;min-height:76px;line-height:1.6}
+
+/* ── Mode switcher ── */
+.mode-row{
+  display:grid;grid-template-columns:1fr 1fr;
+  width:100%;min-width:0;
+  border:1.5px solid var(--g3);border-radius:var(--r4);
+  overflow:hidden;margin-bottom:8px;
+}
+.mb{
+  display:block;width:100%;padding:10px 4px;min-height:44px;
+  font-size:13px;font-weight:600;font-family:inherit;
+  border:none;background:var(--g1);color:var(--g4);
+  text-align:center;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;touch-action:manipulation;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:background .12s,color .12s;
+}
+.mb+.mb{border-left:1.5px solid var(--g3)}
+.mb.on{background:var(--pl);color:var(--pd);font-weight:700}
+.mb:active{opacity:.7}
+.hidden{display:none!important}
+
+/* ── 2-col ── */
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:11px;width:100%;min-width:0}
+@media(max-width:360px){.row2{grid-template-columns:1fr}}
+
+/* ── Chips ── */
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{
+  display:inline-flex;align-items:center;
+  padding:8px 14px;border-radius:999px;
+  border:1.5px solid var(--g3);background:var(--w);color:var(--g5);
+  font-size:13px;font-family:inherit;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;user-select:none;
+  touch-action:manipulation;min-height:40px;line-height:1;
+  transition:all .1s;
+}
+.chip.on{background:var(--pl);border-color:var(--pb);color:var(--pd);font-weight:700}
+.chip:active{opacity:.72}
+
+/* ── Swatches ── */
+.swatches{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;width:100%}
+@media(max-width:360px){.swatches{grid-template-columns:repeat(4,1fr)}}
+.sw{
+  height:42px;border-radius:9px;border:2.5px solid transparent;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:13px;-webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;transition:border-color .1s;
+}
+.sw .ck{display:none}.sw.on{border-color:var(--p)}.sw.on .ck{display:block}
+.sw:active{opacity:.75}
+
+/* ── Prompt output ── */
+.out-wrap{background:var(--w);border:1px solid #e8e8e8;border-radius:var(--r6);padding:14px 15px;margin-bottom:12px}
+.out-label{font-size:11px;font-weight:700;color:var(--g4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.out{
+  background:#f6f4ff;border:1.5px solid #dddaf5;border-radius:var(--r4);
+  padding:12px;font-size:12px;line-height:1.8;
+  font-family:'Courier New',monospace;color:var(--g9);
+  white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;
+  min-height:80px;
+}
+.out.empty{
+  font-family:inherit;font-style:italic;font-size:14px;
+  color:#b5afd6;display:flex;align-items:center;justify-content:center;text-align:center;
+}
+.toast{font-size:13px;color:#059669;margin-top:7px;display:none;align-items:center;gap:5px}
+.toast.on{display:flex}
+
+/* ── Sticky bottom bar ── */
+.bottom-bar{
+  position:fixed;
+  bottom:0;left:0;right:0;
+  background:var(--w);
+  border-top:1px solid var(--g2);
+  padding:10px 16px;
+  padding-bottom:max(14px, calc(10px + var(--safe-b)));
+  padding-left:max(16px, calc(16px + var(--safe-l)));
+  padding-right:max(16px, calc(16px + var(--safe-r)));
+  display:flex;gap:8px;
+  z-index:100;
+}
+.btn-gen{
+  flex:2;display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:14px 8px;min-height:52px;
+  background:var(--p);border:none;border-radius:var(--r6);
+  color:#fff;font-size:15px;font-weight:700;font-family:inherit;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;transition:background .12s,transform .1s;
+}
+.btn-gen:active{background:var(--pd);transform:scale(.985)}
+.btn-copy,.btn-reset{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:5px;
+  padding:14px 4px;min-height:52px;
+  background:var(--g1);border:1.5px solid var(--g3);border-radius:var(--r6);
+  color:var(--g5);font-size:13px;font-family:inherit;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;transition:background .12s;
+}
+.btn-copy:active,.btn-reset:active{background:var(--g2)}
+
+/* ── Install banner ── */
+.install-hint{
+  background:#FFF8E1;border:1px solid #FFD54F;
+  border-radius:var(--r6);padding:12px 14px;
+  margin-bottom:12px;display:flex;gap:10px;align-items:flex-start;
+}
+.install-hint-icon{font-size:20px;flex-shrink:0;margin-top:1px}
+.install-hint-text{font-size:12.5px;color:#5D4037;line-height:1.55}
+.install-hint-text strong{display:block;font-size:13px;margin-bottom:2px;color:#4E342E}
+.install-hint-close{
+  margin-left:auto;flex-shrink:0;background:none;border:none;
+  font-size:18px;color:#9E8070;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;padding:0 0 0 8px;
+  touch-action:manipulation;
+}
+</style>
+</head>
+<body>
+
+<!-- Status bar area (Dynamic Island / Notch safe) -->
+<div class="status-bar">
+  <span class="status-bar-title">🐾 Cat Prompt Generator</span>
+</div>
+
+<!-- App header -->
+<div class="app-header">
+  <h1>Cat Infographic <em>Prompt</em></h1>
+  <p>สร้าง prompt สำหรับ AI image tools • A4 Infographic</p>
+</div>
+
+<!-- Main content -->
+<div class="main">
+
+  <!-- Install banner (shown only in browser, not standalone) -->
+  <div class="install-hint" id="install-hint">
+    <div class="install-hint-icon">📲</div>
+    <div class="install-hint-text">
+      <strong>เพิ่มลง Home Screen</strong>
+      กด Share (□↑) → "Add to Home Screen" เพื่อใช้เป็น App ได้เลย ไม่ต้องโหลด App Store
+    </div>
+    <button class="install-hint-close" onclick="document.getElementById('install-hint').remove()">×</button>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tabbar">
+    <button class="tb on" id="t-basic"    onclick="tab('basic')">📝 เนื้อหา</button>
+    <button class="tb"    id="t-style"    onclick="tab('style')">🎨 สไตล์</button>
+    <button class="tb"    id="t-adv"      onclick="tab('adv')">⚙️ ตั้งค่า</button>
+  </div>
+
+  <!-- PANE: เนื้อหา -->
+  <div class="pane on" id="p-basic">
+
+    <div class="blk">
+      <div class="blk-t">📌 หมวดหมู่ & หัวข้อ</div>
+
+      <div class="fld">
+        <span class="lbl">หมวดหมู่หลัก</span>
+        <div class="mode-row">
+          <button class="mb on" id="cm-s" onclick="mode('cat','s')">📋 เลือก</button>
+          <button class="mb"    id="cm-t" onclick="mode('cat','t')">✏️ พิมพ์เอง</button>
+        </div>
+        <select id="cat-s" onchange="fillTopics()">
+          <option value="health">🏥 สุขภาพแมว</option>
+          <option value="food">🍱 อาหารและโภชนาการ</option>
+          <option value="behavior">🐱 พฤติกรรมแมว</option>
+          <option value="care">✂️ การดูแลและความสะอาด</option>
+          <option value="breed">📋 สายพันธุ์แมว</option>
+          <option value="training">🎯 การฝึกแมว</option>
+        </select>
+        <input type="text" id="cat-t" class="hidden" placeholder="พิมพ์หมวดหมู่เอง เช่น สุขภาพจิตแมว...">
+      </div>
+
+      <div class="fld">
+        <span class="lbl">หัวข้อเฉพาะ</span>
+        <div class="mode-row">
+          <button class="mb on" id="tm-s" onclick="mode('topic','s')">📋 เลือก</button>
+          <button class="mb"    id="tm-t" onclick="mode('topic','t')">✏️ พิมพ์เอง</button>
+        </div>
+        <select id="topic-s"></select>
+        <input type="text" id="topic-t" class="hidden" placeholder="พิมพ์หัวข้อเอง...">
+      </div>
+    </div>
+
+    <div class="blk">
+      <div class="blk-t">📐 Layout</div>
+      <div class="chips" id="g-layout">
+        <button class="chip on" data-v="3-column grid layout"        onclick="single(this,'layout')">3 คอลัมน์</button>
+        <button class="chip"    data-v="2-column layout"             onclick="single(this,'layout')">2 คอลัมน์</button>
+        <button class="chip"    data-v="top-down flow layout"        onclick="single(this,'layout')">Flow ↓</button>
+        <button class="chip"    data-v="grid cards layout"           onclick="single(this,'layout')">การ์ด</button>
+        <button class="chip"    data-v="timeline infographic layout" onclick="single(this,'layout')">Timeline</button>
+        <button class="chip"    data-v="comparison table layout"     onclick="single(this,'layout')">เปรียบเทียบ</button>
+      </div>
+    </div>
+
+    <div class="blk">
+      <div class="blk-t">🖼️ สไตล์รูปแมว</div>
+      <div class="chips" id="g-catimg">
+        <button class="chip on" data-v="realistic photo of cats"        onclick="single(this,'catimg')">📷 ภาพถ่าย</button>
+        <button class="chip"    data-v="cute cartoon cat illustrations" onclick="single(this,'catimg')">🎨 การ์ตูน</button>
+        <button class="chip"    data-v="flat vector illustration cats"  onclick="single(this,'catimg')">✏️ Flat</button>
+        <button class="chip"    data-v="watercolor painted cats"        onclick="single(this,'catimg')">🖌️ ลายน้ำ</button>
+        <button class="chip"    data-v="chibi cute cats"                onclick="single(this,'catimg')">🐾 Chibi</button>
+      </div>
+    </div>
+
+    <!-- Output shown here too -->
+    <div class="out-wrap">
+      <div class="out-label">✨ Prompt ที่สร้าง</div>
+      <div class="out empty" id="out">กด Generate ด้านล่าง เพื่อสร้าง prompt</div>
+      <div class="toast" id="toast">✅ คัดลอกแล้ว!</div>
+    </div>
+
+  </div>
+
+  <!-- PANE: สไตล์ -->
+  <div class="pane" id="p-style">
+
+    <div class="blk">
+      <div class="blk-t">🎨 โทนสีหลัก</div>
+      <div class="swatches" id="g-color">
+        <div class="sw on" style="background:#F9D5E5" data-v="pink pastel"     onclick="clr(this)"><span class="ck">✓</span></div>
+        <div class="sw"    style="background:#D4E9FA" data-v="blue pastel"     onclick="clr(this)"><span class="ck">✓</span></div>
+        <div class="sw"    style="background:#D5EAD0" data-v="green pastel"    onclick="clr(this)"><span class="ck">✓</span></div>
+        <div class="sw"    style="background:#FFF0C8" data-v="yellow cream"    onclick="clr(this)"><span class="ck">✓</span></div>
+        <div class="sw"    style="background:#E8D5FA" data-v="lavender"        onclick="clr(this)"><span class="ck">✓</span></div>
+        <div class="sw"    style="background:#FAE0D0" data-v="peach pastel"    onclick="clr(this)"><span class="ck">✓</span></div>
+        <div class="sw"    style="background:#F5F5F5;border:1px solid #ddd" data-v="white minimal" onclick="clr(this)"><span class="ck" style="color:#534AB7">✓</span></div>
+        <div class="sw"    style="background:#2D2D2D" data-v="dark elegant"    onclick="clr(this)"><span class="ck" style="color:#fff">✓</span></div>
+        <div class="sw"    style="background:#1A3A4A" data-v="navy blue"       onclick="clr(this)"><span class="ck" style="color:#fff">✓</span></div>
+        <div class="sw"    style="background:#E8F5E9" data-v="soft mint"       onclick="clr(this)"><span class="ck">✓</span></div>
+        <div class="sw"    style="background:#FEE2E2" data-v="coral red soft"  onclick="clr(this)"><span class="ck">✓</span></div>
+        <div class="sw"    style="background:#F0EAE2" data-v="warm beige"      onclick="clr(this)"><span class="ck">✓</span></div>
+      </div>
+    </div>
+
+    <div class="blk">
+      <div class="blk-t">✨ สไตล์ดีไซน์</div>
+      <div class="chips" id="g-style">
+        <button class="chip on" data-v="cute kawaii style"           onclick="single(this,'style')">🌸 Kawaii</button>
+        <button class="chip"    data-v="modern clean infographic"    onclick="single(this,'style')">💼 Modern</button>
+        <button class="chip"    data-v="playful colorful pop style"  onclick="single(this,'style')">🎉 Playful</button>
+        <button class="chip"    data-v="minimal professional design" onclick="single(this,'style')">⬜ Minimal</button>
+        <button class="chip"    data-v="vintage retro poster style"  onclick="single(this,'style')">📰 Retro</button>
+        <button class="chip"    data-v="editorial magazine layout"   onclick="single(this,'style')">📖 Editorial</button>
+      </div>
+    </div>
+
+    <div class="blk">
+      <div class="blk-t">🌐 ภาษาข้อความ</div>
+      <div class="chips" id="g-lang">
+        <button class="chip on" data-v="Thai language text"          onclick="single(this,'lang')">🇹🇭 ไทย</button>
+        <button class="chip"    data-v="English language text"       onclick="single(this,'lang')">🇺🇸 English</button>
+        <button class="chip"    data-v="Thai and English bilingual"  onclick="single(this,'lang')">🌐 ไทย+Eng</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- PANE: ตั้งค่า -->
+  <div class="pane" id="p-adv">
+
+    <div class="blk">
+      <div class="blk-t">🧩 องค์ประกอบ</div>
+      <div class="chips" id="g-elems">
+        <button class="chip on" data-v="icon illustrations"         onclick="multi(this)">🔷 ไอคอน</button>
+        <button class="chip on" data-v="statistics and numbers"     onclick="multi(this)">📊 สถิติ</button>
+        <button class="chip on" data-v="tip callout boxes"          onclick="multi(this)">💡 Tips</button>
+        <button class="chip"    data-v="step-by-step numbered list" onclick="multi(this)">🔢 ลิสต์</button>
+        <button class="chip"    data-v="comparison bar chart"       onclick="multi(this)">📈 กราฟ</button>
+        <button class="chip"    data-v="footer source citation"     onclick="multi(this)">📎 อ้างอิง</button>
+        <button class="chip on" data-v="decorative paw prints"      onclick="multi(this)">🐾 ลายเท้า</button>
+        <button class="chip"    data-v="heart and star decorations" onclick="multi(this)">⭐ หัวใจ/ดาว</button>
+        <button class="chip"    data-v="rounded card sections"      onclick="multi(this)">🃏 การ์ดมน</button>
+      </div>
+    </div>
+
+    <div class="blk">
+      <div class="blk-t">📝 คำอธิบายเพิ่มเติม</div>
+      <textarea id="notes" placeholder="เช่น ให้มีแมวนั่งมุมขวาบน, ตัวอักษรใหญ่ชัดเจน..."></textarea>
+    </div>
+
+    <div class="blk">
+      <div class="blk-t">⚙️ คุณภาพ & ขนาด</div>
+      <div class="row2">
+        <div>
+          <span class="lbl">Resolution</span>
+          <select id="res">
+            <option value="high resolution 300 DPI">🖨️ Print 300 DPI</option>
+            <option value="72 DPI web optimized">🌐 Web 72 DPI</option>
+            <option value="ultra high resolution 600 DPI">⚡ Ultra 600 DPI</option>
+          </select>
+        </div>
+        <div>
+          <span class="lbl">ขนาด</span>
+          <select id="size">
+            <option value="A4 portrait 210x297mm">📄 A4 Portrait</option>
+            <option value="A4 landscape 297x210mm">📄 A4 Landscape</option>
+            <option value="A3 portrait 297x420mm">📋 A3 Portrait</option>
+            <option value="square 1:1">⬜ Square 1:1</option>
+            <option value="Instagram 4:5 portrait">📱 Instagram 4:5</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div><!-- /main -->
+
+<!-- Sticky bottom bar -->
+<div class="bottom-bar">
+  <button class="btn-gen"   onclick="gen()">✨ Generate</button>
+  <button class="btn-copy"  onclick="copy()">📋 Copy</button>
+  <button class="btn-reset" onclick="rst()">🔄</button>
+</div>
+
+<script>
+/* Topics */
+const T={
+  health:['โรคที่พบบ่อยในแมว','วัคซีนที่แมวควรได้รับ','สัญญาณบอกว่าแมวป่วย','การดูแลแมวสูงอายุ','ปัญหาระบบทางเดินปัสสาวะ','การทำหมันแมว','โรคเชื้อราในแมว','โรคไตในแมว','โรคเบาหวานในแมว','โรคหัวใจในแมว','โรคมะเร็งในแมว','โรคทางเดินหายใจในแมว','โรคหูชั้นในแมว','โรคตาในแมว','โรคฟันและเหงือกในแมว','ปัญหาผิวหนังและขนร่วง','โรคพยาธิในแมว','การตรวจสุขภาพแมวประจำปี','ภาวะอ้วนในแมว','วิธีให้ยาแมวอย่างถูกวิธี'],
+  food:['อาหารเปียก vs อาหารเม็ด','สารอาหารที่แมวต้องการ','อาหารที่แมวห้ามกิน','การให้อาหารลูกแมว','น้ำดื่มสำหรับแมว','อาหารแมวตามช่วงอายุ','อาหารเสริมสำหรับแมว','อาหาร Raw Diet สำหรับแมว','โปรตีนในอาหารแมว','การอ่านฉลากอาหารแมว','ปริมาณอาหารที่แมวควรกินต่อวัน','อาหารสำหรับแมวโรคไต','อาหารลดน้ำหนักสำหรับแมวอ้วน','ทำไมแมวต้องการทอรีน','ของว่างและขนมแมว','อาหารแมวแบบโฮมเมด','เปรียบเทียบแบรนด์อาหารแมว','อาหารสำหรับแมวตั้งท้องและให้นม','วิธีเปลี่ยนอาหารแมวไม่ให้ท้องเสีย','อาหารที่ช่วยบำรุงขนแมว'],
+  behavior:['ทำไมแมวถึงเพอร์','ภาษากายของแมว','พฤติกรรมแมวที่ควรรู้','ทำไมแมวถึงข่วน','แมวกับการเล่น','การสื่อสารของแมว','แมวซึมเศร้า สัญญาณและการช่วยเหลือ','ทำไมแมวถึงนอนมากกว่า 12 ชั่วโมง','แมวกับสัญชาตญาณนักล่า','ทำไมแมวถึงนำของมาให้เจ้าของ','พฤติกรรมมาร์คกลิ่นของแมว','ทำไมแมวถึงกระโดดขึ้นที่สูง','แมวกับความอยากรู้อยากเห็น','ทำไมแมวถึงกลัวน้ำ','ความสัมพันธ์ระหว่างแมวกับแมวตัวอื่น','แมวกับสุนัข อยู่ร่วมกันได้ไหม','ทำไมแมวถึงตื่นตอนกลางคืน','สัญญาณแมวมีความสุข','สัญญาณแมวเครียดหรือกลัว','แมวกับการทำอาณาเขต'],
+  care:['ความถี่ในการอาบน้ำแมว','การแปรงขนแมว','การตัดเล็บแมว','การทำความสะอาดหูแมว','การดูแลฟันแมว','การเลือกของเล่นแมว','การดูแลแมวขนยาว','การดูแลแมวขนสั้น','วิธีจัดบ้านให้เป็น Cat-friendly','การเลือกกระบะทรายที่เหมาะสม','การทำความสะอาดกระบะทราย','เตรียมบ้านรับแมวตัวใหม่','การดูแลแมวตอนฤดูร้อน','การดูแลแมวตอนฤดูหนาว','การพาแมวไปหาหมอ','การดูแลแมวเมื่อต้องเดินทาง','การเลือกที่นอนสำหรับแมว','การเลือก Cat Tree ที่เหมาะสม','วิธีกำจัดขนแมวในบ้าน','การดูแลแมวที่อยู่ในบ้านเพียงลำพัง'],
+  breed:['สายพันธุ์แมวยอดนิยม','แมวขนสั้น vs ขนยาว','แมวไทยสายพันธุ์ต่างๆ','นิสัยตามสายพันธุ์','แมวสายพันธุ์ขนาดใหญ่','แมวไร้ขน Sphynx','แมวเปอร์เซีย ลักษณะและการดูแล','แมวเมนคูน สายพันธุ์ยักษ์','แมวสก็อตติช โฟลด์','แมวบริติช ช็อตแฮร์','แมวรัสเซียน บลู','แมวสยาม ประวัติและนิสัย','แมวเบงกอล ลายเสือในบ้าน','แมวอบิสซิเนียน','แมวนอร์วีเจียน ฟอเรสต์','แมวอเมริกัน ช็อตแฮร์','แมวโตนกินีส','แมวเบอร์มีส','เปรียบเทียบนิสัยแมว 5 สายพันธุ์','วิธีเลือกสายพันธุ์ที่เหมาะกับไลฟ์สไตล์'],
+  training:['วิธีฝึกแมวใช้กระบะทราย','การฝึกแมวให้เชื่อฟัง','ฝึกแมวทำท่าทาง','การปรับพฤติกรรมแมว','ฝึกแมวใส่สายจูง','วิธีลดความก้าวร้าวของแมว','การฝึกแมวให้คุ้นกับคนแปลกหน้า','วิธีฝึกแมวไม่กัดและข่วน','ฝึกแมวนอนในที่ที่กำหนด','Clicker Training สำหรับแมว','วิธีฝึกแมวให้เข้ากระเป๋าเดินทาง','ฝึกแมวให้ทำธุระในกระบะทราย','การเสริมแรงบวกในการฝึกแมว','ฝึกแมวให้ไม่กระโดดขึ้นโต๊ะอาหาร','วิธีแนะนำแมวตัวใหม่ให้รู้จักแมวเดิม','การฝึกแมวให้อยู่กับเด็ก','ฝึกแมวให้อาบน้ำโดยไม่ต้านทาน','วิธีหยุดพฤติกรรมดึงดูดความสนใจ','ฝึกแมวให้กินยาได้ง่ายขึ้น','การฝึกแมวขี้กลัวให้กล้าขึ้น']
+};
+
+const S={layout:'3-column grid layout',catimg:'realistic photo of cats',style:'cute kawaii style',lang:'Thai language text',color:'pink pastel',elems:new Set(['icon illustrations','statistics and numbers','tip callout boxes','decorative paw prints'])};
+const M={cat:'s',topic:'s'};
+
+/* Hide install banner when running as standalone PWA */
+if(window.navigator.standalone===true||window.matchMedia('(display-mode: standalone)').matches){
+  const b=document.getElementById('install-hint');
+  if(b)b.remove();
+}
+
+/* Register service worker */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+}
+
+function tab(n){
+  ['basic','style','adv'].forEach(x=>{
+    document.getElementById('t-'+x).classList.toggle('on',x===n);
+    document.getElementById('p-'+x).classList.toggle('on',x===n);
+  });
+}
+
+function mode(which,m){
+  M[which]=m;
+  const isTxt=m==='t';
+  if(which==='cat'){
+    document.getElementById('cm-s').classList.toggle('on',!isTxt);
+    document.getElementById('cm-t').classList.toggle('on',isTxt);
+    document.getElementById('cat-s').classList.toggle('hidden',isTxt);
+    document.getElementById('cat-t').classList.toggle('hidden',!isTxt);
+    if(isTxt)document.getElementById('cat-t').focus();
+    else{document.getElementById('cat-t').value='';fillTopics();}
+  }else{
+    document.getElementById('tm-s').classList.toggle('on',!isTxt);
+    document.getElementById('tm-t').classList.toggle('on',isTxt);
+    document.getElementById('topic-s').classList.toggle('hidden',isTxt);
+    document.getElementById('topic-t').classList.toggle('hidden',!isTxt);
+    if(isTxt)document.getElementById('topic-t').focus();
+    else document.getElementById('topic-t').value='';
+  }
+}
+
+function fillTopics(){
+  const v=document.getElementById('cat-s').value;
+  const s=document.getElementById('topic-s');
+  s.innerHTML=(T[v]||[]).map(x=>`<option value="${x}">${x}</option>`).join('');
+}
+
+function getCat(){
+  if(M.cat==='t')return document.getElementById('cat-t').value.trim()||'cat health';
+  const s=document.getElementById('cat-s');
+  return s.options[s.selectedIndex].text.replace(/^.\s/,'');
+}
+function getTopic(){
+  if(M.topic==='t')return document.getElementById('topic-t').value.trim()||'cat care guide';
+  return document.getElementById('topic-s').value;
+}
+
+function single(el,k){
+  el.closest('.chips').querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');S[k]=el.dataset.v;
+}
+function multi(el){
+  el.classList.toggle('on');
+  const v=el.dataset.v;
+  S.elems.has(v)?S.elems.delete(v):S.elems.add(v);
+}
+function clr(el){
+  document.querySelectorAll('#g-color .sw').forEach(s=>s.classList.remove('on'));
+  el.classList.add('on');S.color=el.dataset.v;
+}
+
+function gen(){
+  const topic=getTopic(),cat=getCat();
+  const elems=S.elems.size?[...S.elems].join(', '):'icons, statistics, tips';
+  const res=document.getElementById('res').value;
+  const sz=document.getElementById('size').value;
+  const notes=document.getElementById('notes').value.trim();
+  const p=`Create a detailed ${sz} infographic poster about "${topic}" for cat owners.
+
+CATEGORY: ${cat}
+STYLE: ${S.style}, ${S.color} color palette, ${S.catimg} imagery
+LAYOUT: ${S.layout} with clear visual hierarchy
+LANGUAGE: ${S.lang}
+ELEMENTS: ${elems}
+TECHNICAL: ${res}, print-ready, clean margins
+
+DESIGN:
+- Large bold eye-catching title with paw print decorations
+- Well-organized sections with rounded card boxes
+- Consistent color coding per section
+- Clear typographic hierarchy: title > heading > body
+- Generous white space for easy reading
+- Cat imagery integrated naturally throughout
+- Summary tip or key takeaway at bottom footer
+
+CONTENT:
+- Accurate, useful info about: ${topic}
+- 3-5 main sections with supporting details
+- Visual icons for each point
+- Relevant statistics or percentages
+- Easy to scan at a glance${notes?'\n\nNOTES: '+notes:''}
+
+OUTPUT: Single-page ${sz} infographic, print & social media ready.`;
+  const el=document.getElementById('out');
+  el.textContent=p;el.classList.remove('empty');
+  // Switch to เนื้อหา tab to show output
+  tab('basic');
+  setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'nearest'}),100);
+}
+
+function copy(){
+  const el=document.getElementById('out');
+  if(el.classList.contains('empty'))return;
+  const txt=el.textContent;
+  const doToast=()=>{const t=document.getElementById('toast');t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2200);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(doToast).catch(()=>fbCopy(txt,doToast));
+  }else fbCopy(txt,doToast);
+}
+function fbCopy(txt,cb){
+  const ta=document.createElement('textarea');
+  ta.value=txt;ta.setAttribute('readonly','');
+  ta.style.cssText='position:fixed;top:-9999px;opacity:0';
+  document.body.appendChild(ta);ta.focus();ta.select();
+  try{document.execCommand('copy');cb();}catch(e){}
+  document.body.removeChild(ta);
+}
+function rst(){
+  const el=document.getElementById('out');
+  el.textContent='กด Generate ด้านล่าง เพื่อสร้าง prompt';
+  el.classList.add('empty');
+  document.getElementById('notes').value='';
+}
+
+fillTopics();
+</script>
+</body>
+</html>
