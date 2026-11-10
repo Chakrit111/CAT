@@ -1,0 +1,21 @@
+{
+  "name": "desktop-pet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Transparent always-on-top desktop pet (Electron + TypeScript)",
+  "main": "dist/main.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node build.mjs",
+    "start": "npm run build && electron ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "electron": "^45.2.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.2"
+  }
+}
