@@ -9,9 +9,15 @@ It wanders along the taskbar, hunts a mouse, and takes spoken commands in Thai.
 npm install
 npm start          # build + launch
 npm run typecheck  # tsc --noEmit
+npm run shortcut   # Windows: build + put a "Desktop Pet" shortcut on the desktop
 ```
 
-Requires Node 22.12+ (Electron 45). Quit from the right-click menu on the pet.
+Requires Node 22.12+ (Electron 45). Quit from the right-click menu on the pet or from the tray icon.
+
+After `npm install`, `npm run shortcut` once gives you a desktop shortcut that starts the pet
+without a terminal. The shortcut runs the last build and points at this folder, so run
+`npm run shortcut` again after changing code or moving the folder. Opening it while the pet is
+already running brings a hidden pet back instead of starting a second one.
 
 The first launch downloads the speech model (about 240 MB) into `%APPDATA%\desktop-pet\models`;
 later launches load it from there in a few seconds. Voice also needs Windows to let desktop apps
@@ -25,6 +31,7 @@ use the microphone (Settings → Privacy & security → Microphone).
 | Drag | Pick it up; it falls back to the floor when released (works across displays) |
 | Right-click | Listens for a spoken command. Opens the menu instead if nothing clear was said, on a second right-click, or while the speech model is still loading |
 | Menu | Walk / Sit / Stand / Sleep / Roll over / Jump / Chase the donut / Chase the mouse / Quit |
+| Tray icon (Windows) | Click hides or shows the pet. Right-click for Hide / Show and Quit. New tray icons start under the `^` of hidden icons; drag it onto the taskbar to keep it in view |
 
 Transparent pixels are click-through; only the cat itself receives the mouse.
 
@@ -108,7 +115,7 @@ ranges, time limit) and voice (model, language, listening time, `minScore`).
 ## Layout
 
 ```
-src/main/main.ts            windows, tick loop, IPC, menu, voice session
+src/main/main.ts            windows, tick loop, IPC, menu, tray icon, voice session
 src/main/pet.ts             state machine + physics (pure, no Electron imports)
 src/main/prey.ts            the hunted mouse (pure)
 src/main/sprites.ts         sprite discovery + alpha masks for hit-testing
@@ -120,6 +127,8 @@ src/preload.ts              contextBridge API for the pet window
 src/mouse-preload.ts        contextBridge API for the mouse window
 src/renderer/               pet canvas, mic badge and recording; mouse canvas
 src/shared/types.ts         IPC contract
+scripts/shortcut.mjs        makes the Windows desktop shortcut (npm run shortcut)
+assets/icon.ico             tray and shortcut icon
 ```
 
 The main process owns position, state and frame index. Each tick it polls the cursor,
@@ -133,6 +142,8 @@ tick loop.
 ## Known limits
 
 - Native Wayland: Electron cannot read the global cursor or position windows there. Use X11 / XWayland.
+- The tray icon and `npm run shortcut` are Windows only (Electron reads `.ico` files only on
+  Windows). Elsewhere the pet runs without a tray icon; quit it from its own right-click menu.
 - Voice is Thai only and hears only the phrases listed above.
 - Voice has been measured with synthetic speech only (the Windows Thai voice, played through
   Chromium's fake microphone): 11 of 12 commands came out right, and "ตื่น" was heard as "เดิน".
