@@ -10,6 +10,7 @@ npm install
 npm start          # build + launch
 npm run typecheck  # tsc --noEmit
 npm run shortcut   # Windows: build + put a "Desktop Pet" shortcut on the desktop
+npm run dist       # Windows: build release/Desktop-Pet-<version>-portable.exe
 ```
 
 Requires Node 22.12+ (Electron 45). Quit from the right-click menu on the pet or from the tray icon.
@@ -18,6 +19,18 @@ After `npm install`, `npm run shortcut` once gives you a desktop shortcut that s
 without a terminal. The shortcut runs the last build and points at this folder, so run
 `npm run shortcut` again after changing code or moving the folder. Opening it while the pet is
 already running brings a hidden pet back instead of starting a second one.
+
+### Portable .exe
+
+`npm run dist` packages the pet with electron-builder into one file,
+`release/Desktop-Pet-<version>-portable.exe` (about 140 MB). It runs on any 64-bit Windows
+machine without Node.js or installing anything: double-click it. Each start unpacks the app to a
+temporary folder first, so the cat takes about 10 s to appear. The speech model is not inside the
+exe; it is downloaded on first use, as above, and shared with `npm start`.
+
+The exe is not code-signed, so on another machine Windows SmartScreen may say "Windows protected
+your PC"; choose More info → Run anyway. `release/` is not committed: the exe is over GitHub's
+100 MB file limit, so share it another way (a GitHub Release, for example).
 
 The first launch downloads the speech model (about 240 MB) into `%APPDATA%\desktop-pet\models`;
 later launches load it from there in a few seconds. Voice also needs Windows to let desktop apps
@@ -149,5 +162,6 @@ tick loop.
   Chromium's fake microphone): 11 of 12 commands came out right, and "ตื่น" was heard as "เดิน".
 - The speech worker calls `_encode_input`, a method internal to transformers.js, so
   `@huggingface/transformers` is pinned to 4.3.2.
-- No packaging config yet (electron-builder / Forge) and no auto-start. A packaged build has to
-  leave `@huggingface/transformers` and its native addons outside the asar archive.
+- No auto-start and no installer, only the portable exe. The `build` section of `package.json`
+  keeps `onnxruntime-node` and `sharp` (native addons) outside the asar archive and leaves out
+  the onnxruntime builds for other platforms; keep that in mind when adding dependencies.

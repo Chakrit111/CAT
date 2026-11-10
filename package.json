@@ -8,11 +8,41 @@
     "typecheck": "tsc --noEmit",
     "build": "node build.mjs",
     "start": "npm run build && electron .",
-    "shortcut": "npm run build && node scripts/shortcut.mjs"
+    "shortcut": "npm run build && node scripts/shortcut.mjs",
+    "dist": "npm run build && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "io.github.chakrit111.desktoppet",
+    "productName": "Desktop Pet",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.map",
+      "assets/**/*",
+      "package.json",
+      "!node_modules/onnxruntime-web/**",
+      "!node_modules/onnxruntime-node/bin/*/darwin/**",
+      "!node_modules/onnxruntime-node/bin/*/linux/**",
+      "!node_modules/onnxruntime-node/bin/*/win32/arm64/**"
+    ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**",
+      "node_modules/sharp/**",
+      "node_modules/@img/**"
+    ],
+    "win": {
+      "icon": "assets/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Desktop-Pet-${version}-portable.exe"
+    }
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
     "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
   },
