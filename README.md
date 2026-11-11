@@ -182,8 +182,10 @@ pets/<id>/
 ```
 
 `features` switches parts on or off per pet: `voice` (Thai voice commands; adds the 240 MB
-speech model on first run; off by default for new pets), `hunt` (the mouse; off removes it from
-the menu and from what the pet does by itself), `sounds`. `menu` lists the commands shown in the
+speech model on first run; off by default for new pets), `hunt` (the `run` state; off removes it
+from the menu and from what the pet does by itself), `sounds`. What `run` is depends on
+`tuning.runMode`: `"hunt"` (default) chases a mouse across the screen, `"wheel"` runs in place in a
+wheel the app draws around the pet, smaller inside it, for 6-12 s (`tuning.wheel`). `menu` lists the commands shown in the
 right-click menu, in order, with their labels. Each pet keeps its own settings in
 `%APPDATA%\<packageName>`, so two pets never share settings or block each other.
 
@@ -196,6 +198,32 @@ npm run check-pet -- acme-cat                     # what is missing or wrong
 npm run build-pet -- acme-cat --run               # try it (no exe)
 npm run build-pet -- acme-cat                     # release/acme-cat/Acme-Cat-1.0.0-portable.exe
 ```
+
+A pack can bring its own wheel, as pets/hamster does (all pictures 320x320, drawn window-sized):
+
+- `wheel.png` or `wheel/<n>.png`: the wheel, drawn behind the pet. Several frames loop, 50 ms each.
+  For a wheel drawn at an angle, `python -I scripts/wheel_rungs.py <wheel.png> <pack>/wheel --front
+  cx,cy,a,b --back cx,cy,a,b` makes the frames: the picture stays still and only the rungs inside
+  move (`--front` is the ellipse of the opening, `--back` of the back plate, in picture pixels).
+  For a flat, front-on wheel, set `tuning.wheel.hub` to `[x, y, radius]` (fractions of the window)
+  instead and that circle of the one picture is turned.
+- `sprites/run/`: for a wheel drawn at an angle, `python -I scripts/fit_in_wheel.py <bottom-anchored
+  run frames> <pack>/sprites/run --opening cx,cy,a,b` moves each frame as low as the whole pet
+  still fits in the opening, feet on its curve. Then use `tuning.wheel` `scale: 1`, `floor: 1`,
+  `centerX: 0.5`. Otherwise `scale` (pet size inside the wheel, 0.3-1), `floor` (feet, fraction
+  from the top) and `centerX` place the ordinary frames.
+- `tuning.wheel.opening` `[x, y, radiusX, radiusY]` (fractions): the pet is only drawn inside that
+  ellipse, so the rim hides anything that still sticks out.
+- `wheel-enter/<n>.png`: optional; the pet alone, played once over the wheel (220 ms each) as it
+  gets in, before the run. `scripts/climb_frames.py` cut the hamster's from a green sheet drawn
+  with the wheel, shrank it to the size of the other poses and fitted it into the opening.
+
+Artwork from AI image tools often comes as JPG with the "transparent" checkerboard painted in.
+`python -I scripts/remove_checker.py <picture.jpg> <out dir>` cuts the figures out (and splits a
+sheet of several poses into one PNG each); it cannot rescue anything translucent, such as glass or
+glow, drawn over the checkerboard. Ask for a plain background instead: `scripts/cut_black.py` cuts
+a picture on black (brightness becomes transparency), and a plain green one keys out cleanly (see
+`key_green` in `scripts/climb_frames.py`).
 
 `import-sprites` (`scripts/fit_frames.py`, Python with Pillow) scales every frame of a pose by the
 same factor and places it on a 320x320 canvas: feet on the floor (`--anchor bottom`), the middle
@@ -225,7 +253,13 @@ pets/<id>/                   pet packs (see Pets for clients); pets/donut-cat is
 build.mjs                   bundles the code and copies the pack named by PET into dist/pet
 scripts/build-pet.mjs       exe for one pack (npm run build-pet / dist)
 scripts/new-pet.mjs         starts a pack;  scripts/check-pet.mjs  checks one
+scripts/remove_checker.py   cuts figures out of pictures with a painted checkerboard background
+scripts/cut_black.py        cuts a picture drawn on a black background
+scripts/wheel_rungs.py      spin frames for a pack's wheel drawn at an angle
+scripts/fit_in_wheel.py     places run frames inside that wheel's opening
+scripts/climb_frames.py     the hamster's getting-into-the-wheel frames, cut from a green sheet
 scripts/fit_frames.py       fits artwork into frames (npm run import-sprites)
+src/shared/wheel.ts         where the running wheel and the pet inside it are drawn
 scripts/contact_sheet.py    one image of every state (npm run preview)
 scripts/make_icon.py        multi-size .ico from a frame
 scripts/shortcut.mjs        makes the Windows desktop shortcut (npm run shortcut)

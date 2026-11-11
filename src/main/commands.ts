@@ -26,6 +26,19 @@ export class VoiceCommands {
     this.commands = table.flatMap(([command, phrases]) => phrases.map(() => command));
   }
 
+  /** The best-fitting phrase of each command, best command first: for logging how close a call was. */
+  ranked(scores: readonly number[]): VoiceGuess[] {
+    const best = new Map<CommandableState, VoiceGuess>();
+    scores.forEach((score, i) => {
+      const command = this.commands[i];
+      const phrase = this.phrases[i];
+      if (command === undefined || phrase === undefined) return;
+      const seen = best.get(command);
+      if (!seen || score > seen.score) best.set(command, { command, phrase, score });
+    });
+    return [...best.values()].sort((a, b) => b.score - a.score);
+  }
+
   /**
    * Picks the best-fitting phrase. The caller decides whether its score is good enough to act on.
    * @param scores one score per entry of `phrases`

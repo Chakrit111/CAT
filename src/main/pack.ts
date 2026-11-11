@@ -103,6 +103,9 @@ export function loadPack(dir: string): PetPack {
   }
 
   if (pet['tuning'] !== undefined) merge(config as unknown as Record<string, Json>, pet['tuning'], 'tuning', problems);
+  need(config.runMode === 'hunt' || config.runMode === 'wheel', 'tuning.runMode must be "hunt" or "wheel"');
+  need(config.wheel.scale >= 0.3 && config.wheel.scale <= 1, 'tuning.wheel.scale must be between 0.3 and 1');
+  need(config.wheel.minMs <= config.wheel.maxMs, 'tuning.wheel.minMs must not be above maxMs');
   if (!features.hunt) config.idleNext = config.idleNext.filter(([state]) => state !== 'run');
   for (const entry of config.idleNext as readonly Json[]) {
     const ok =

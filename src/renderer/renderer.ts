@@ -1,4 +1,5 @@
 import type { FrameMessage, PetApi, PetState } from '../shared/types';
+import { wheelGeometry } from '../shared/wheel';
 
 declare global {
   interface Window {
@@ -25,7 +26,13 @@ async function main(): Promise<void> {
   const ctx = canvas?.getContext('2d');
   if (!canvas || !ctx) throw new Error('Canvas 2D context unavailable');
 
-  const { size, frames } = await window.pet.getManifest();
+  const { size, frames, wheel: wheelUrl, wheelEnter } = await window.pet.getManifest();
+  const enterImages = wheelEnter ? await Promise.all(wheelEnter.map(loadImage)) : [];
+  const ENTER_STEP_MS = 220;
+  const wheelImages = wheelUrl ? await Promise.all(wheelUrl.map(loadImage)) : [];
+  /** When the current run in the wheel began, to play the spin-up frames from the start. */
+  let wheelSince = 0;
+  const WHEEL_STEP_MS = 50;
 
   // States can share fallback frames, so de-duplicate loads by URL.
   const cache = new Map<string, Promise<HTMLImageElement>>();
@@ -119,8 +126,62 @@ async function main(): Promise<void> {
     ctx.stroke();
   };
 
+  // --- the running wheel (pets whose run is 'wheel') --------------------------
+  /** Wooden stand, spokes and a rim with rungs, turned by `angle`; drawn behind the pet. */
+  const drawWheel = (px: number, angle: number): void => {
+    const g = wheelGeometry(px, 1);
+    const inner = g.radius - g.ring / 2;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#8d6e63';
+    ctx.lineWidth = g.ring * 0.8;
+    ctx.beginPath();
+    for (const side of [-1, 1]) {
+      ctx.moveTo(g.cx, g.cy);
+      ctx.lineTo(g.cx + side * g.radius * 0.55, px * 0.985);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(121, 85, 72, 0.7)';
+    ctx.lineWidth = g.ring * 0.35;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = angle + (i * Math.PI) / 4;
+      ctx.moveTo(g.cx, g.cy);
+      ctx.lineTo(g.cx + Math.cos(a) * inner, g.cy + Math.sin(a) * inner);
+    }
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(g.cx, g.cy, g.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = '#6d4c41';
+    ctx.lineWidth = g.ring;
+    ctx.stroke();
+    ctx.strokeStyle = '#ffe0b2';
+    ctx.lineWidth = g.ring * 0.55;
+    ctx.stroke();
+
+    // Rungs across the rim make the turning easy to see.
+    ctx.strokeStyle = '#a1887f';
+    ctx.lineWidth = g.ring * 0.22;
+    ctx.beginPath();
+    for (let i = 0; i < 24; i++) {
+      const a = angle + (i * Math.PI) / 12;
+      ctx.moveTo(g.cx + Math.cos(a) * (g.radius - g.ring * 0.3), g.cy + Math.sin(a) * (g.radius - g.ring * 0.3));
+      ctx.lineTo(g.cx + Math.cos(a) * (g.radius + g.ring * 0.3), g.cy + Math.sin(a) * (g.radius + g.ring * 0.3));
+    }
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(g.cx, g.cy, g.ring * 0.7, 0, Math.PI * 2);
+    ctx.fillStyle = '#6d4c41';
+    ctx.fill();
+    ctx.restore();
+  };
+  let wheelRaf = 0;
+
   const draw = (msg: FrameMessage): void => {
-    const { state, frame, flip } = msg;
+    const { state, frame, flip, wheel } = msg;
     lastFrame = msg;
     const img = images.get(state)?.[frame];
     if (!img) return;
@@ -132,9 +193,82 @@ async function main(): Promise<void> {
       canvas.height = px;
     }
     ctx.imageSmoothingQuality = 'high';
-    ctx.setTransform(flip ? -1 : 1, 0, 0, 1, flip ? px : 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, px, px);
-    ctx.drawImage(img, 0, 0, px, px);
+    if (wheel) {
+      ctx.setTransform(flip ? -1 : 1, 0, 0, 1, flip ? px : 0, 0);
+      const now = performance.now();
+      if (!wheelSince) wheelSince = now;
+      const [hx, hy, hr] = wheel.hub;
+      const face = wheelImages[0];
+      const enterStep = Math.floor((now - wheelSince) / ENTER_STEP_MS);
+      const entering = enterImages[enterStep];
+      if (entering) {
+        // Getting into the wheel: the pet alone over the still wheel, once, before the run.
+        if (face) ctx.drawImage(face, 0, 0, px, px);
+        ctx.drawImage(entering, 0, 0, px, px);
+        wheelRaf ||= requestAnimationFrame(() => {
+          wheelRaf = 0;
+          if (lastFrame?.wheel) draw(lastFrame);
+        });
+        drawMic(px);
+        return;
+      }
+      if (face && hx !== undefined && hy !== undefined && hr !== undefined) {
+        // The pack's own wheel, turning: the picture as is (stand), then its face circle rotated on top.
+        ctx.drawImage(face, 0, 0, px, px);
+        const angle = ((now - wheelSince) / 1000) * wheel.turnsPerSecond * Math.PI * 2;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(hx * px, hy * px, hr * px, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.translate(hx * px, hy * px);
+        ctx.rotate(angle);
+        ctx.translate(-hx * px, -hy * px);
+        ctx.drawImage(face, 0, 0, px, px);
+        ctx.restore();
+        wheelRaf ||= requestAnimationFrame(() => {
+          wheelRaf = 0;
+          if (lastFrame?.wheel) draw(lastFrame);
+        });
+      } else if (wheelImages.length > 0) {
+        // The pack's own wheel: its frames loop, each a step of the turn.
+        const n = wheelImages.length;
+        const picture = wheelImages[Math.floor((now - wheelSince) / WHEEL_STEP_MS) % n];
+        if (picture) ctx.drawImage(picture, 0, 0, px, px);
+        if (n > 1) {
+          wheelRaf ||= requestAnimationFrame(() => {
+            wheelRaf = 0;
+            if (lastFrame?.wheel) draw(lastFrame);
+          });
+        }
+      } else {
+        // Running to the right pushes the bottom of the wheel left: clockwise on screen.
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        drawWheel(px, (performance.now() / 1000) * wheel.turnsPerSecond * Math.PI * 2 * (flip ? -1 : 1));
+        // Main only sends a frame when the pose changes; the drawn wheel turns on its own clock.
+        wheelRaf ||= requestAnimationFrame(() => {
+          wheelRaf = 0;
+          if (lastFrame?.wheel) draw(lastFrame);
+        });
+      }
+      const g = wheelGeometry(px, wheel.scale, wheel.floor, wheel.centerX);
+      ctx.setTransform(flip ? -1 : 1, 0, 0, 1, flip ? px : 0, 0);
+      const [ox, oy, orx, ory] = wheel.opening;
+      ctx.save();
+      if (ox !== undefined && oy !== undefined && orx !== undefined && ory !== undefined) {
+        // The pet is inside the wheel: the rim hides whatever sticks out of the opening.
+        ctx.beginPath();
+        ctx.ellipse(ox * px, oy * px, orx * px, ory * px, 0, 0, Math.PI * 2);
+        ctx.clip();
+      }
+      ctx.drawImage(img, g.spriteX, g.spriteY, g.spriteSize, g.spriteSize);
+      ctx.restore();
+    } else {
+      wheelSince = 0;
+      ctx.setTransform(flip ? -1 : 1, 0, 0, 1, flip ? px : 0, 0);
+      ctx.drawImage(img, 0, 0, px, px);
+    }
     drawMic(px);
   };
   const redraw = (): void => {

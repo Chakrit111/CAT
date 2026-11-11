@@ -20,7 +20,7 @@ if (!existsSync(path.join(packDir, 'pet.json'))) {
 async function copyPack() {
   await rm('dist/pet', { recursive: true, force: true });
   await mkdir('dist/pet', { recursive: true });
-  for (const name of ['pet.json', 'icon.ico', 'sprites', 'sounds']) {
+  for (const name of ['pet.json', 'icon.ico', 'wheel', 'wheel-enter', 'wheel.png', 'sprites', 'sounds']) {
     const from = path.join(packDir, name);
     if (existsSync(from)) await cp(from, path.join('dist/pet', name), { recursive: true });
   }

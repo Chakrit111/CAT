@@ -4,8 +4,14 @@
 
 1. `npm run new-pet -- <id> --name "Client Pet"` - empty pack, voice off. `--from donut-cat` copies a
    working pack (sprites, sounds, icon) to start from. `<id>`: a-z, 0-9, "-".
-2. Put the client's artwork in `pets/<id>/art/<state>/` and fit each state with
-   `npm run import-sprites` (see SKILL.md). Look at every result before moving on.
+2. Put the client's artwork in `pets/<id>/art/` and fit each state with
+   `npm run import-sprites` (see SKILL.md). Look at every result before moving on. Artwork from AI
+   tools is often JPG with a painted checkerboard: cut it out first with
+   `python -I scripts/remove_checker.py <jpg> <out> [--name x] [--keep-largest]` (splits sheets of
+   several poses; check the cut-outs on dark and green). Translucent things (a glass wheel, glow)
+   over the checkerboard cannot be recovered - ask for PNG or a plain background instead. Pictures
+   from different sheets come at different scales: bring them to one scale (eye/ear size) before
+   fitting with `--scale-by fixed`. pets/hamster is a worked example (art/cut/).
 3. Icon: `python -I scripts/make_icon.py pets/<id>/sprites/idle/0.png pets/<id>/icon.ico <preview.png> <left,top,right,bottom of the head>`
    (small sizes use the head crop, large ones the whole body; it must contain a 256x256 image).
 4. Edit `pets/<id>/pet.json`: productName (exe + tray name), packageName (settings folder; must be
@@ -18,6 +24,25 @@
    `release/<id>/`. Then `npm run build` so dist/ is donut-cat again.
 8. Test as in testing.md (process name = productName). Clean up any test pack you made
    (`pets/<id>`, `release/<id>`, `%APPDATA%\<packageName>`).
+
+## A pet that runs in its own wheel (`runMode: "wheel"`, pets/hamster)
+
+Ask for the wheel alone and the run frames on a plain green or black background, never a painted
+checkerboard. If the wheel is drawn at an angle (3/4 view), do not use `wheel.hub`: it tilts.
+1. Measure two ellipses on the wheel picture (320x320), in pixels: the opening the pet runs behind
+   and the back plate. Scan rows and columns for the dark outlines and fit `cx,cy,a,b`.
+2. `python -I scripts/wheel_rungs.py <wheel.png> pets/<id>/wheel --front <opening> --back <plate>`
+   writes `wheel/0..3.png`; keep the original picture in `art/cut/`.
+3. Fit the run frames as usual (bottom-anchored) into `art/cut/run-fit/`, then
+   `python -I scripts/fit_in_wheel.py pets/<id>/art/cut/run-fit pets/<id>/sprites/run --opening <opening> --wheel pets/<id>/wheel/0.png --preview <png>`.
+4. pet.json `tuning.wheel`: `scale: 1`, `floor: 1`, `centerX: 0.5`, `opening` = the opening
+   ellipse divided by 320.
+5. Getting-in frames are optional (`wheel-enter/<n>.png`, the pet alone). If the artist drew pet
+   and wheel together, `scripts/climb_frames.py` is the hamster's worked example: it keys the green,
+   keeps only the pet, scales it to the other poses and fits it into the opening. Its panel boxes
+   and colour tests are for that sheet; adapt them. Check tails and outlines in the result: thin,
+   dark parts are the first to go missing.
+The pet must be the same size in every pose, wheel included: compare head sizes on one sheet.
 
 ## What to ask the client for
 

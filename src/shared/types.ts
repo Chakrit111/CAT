@@ -18,6 +18,13 @@ export interface SpriteManifest {
   size: number;
   /** file:// URLs per state. Already fallback-resolved: every state has at least one frame. */
   frames: Record<PetState, string[]>;
+  /**
+   * file:// URLs of the pack's own wheel pictures (wheel/<n>.png, or wheel.png), drawn instead of the
+   * app's wheel. Several frames loop, each a step of the turn (scripts/wheel_rungs.py makes them).
+   */
+  wheel?: string[];
+  /** file:// URLs of wheel-enter/<n>.png: the pet alone, drawn over the still wheel, played once as it gets in. */
+  wheelEnter?: string[];
 }
 
 export interface FrameMessage {
@@ -25,6 +32,20 @@ export interface FrameMessage {
   frame: number;
   /** true = mirror horizontally. Sprites are authored facing right. */
   flip: boolean;
+  /** Set while the pet runs in its wheel: draw the wheel, turning, and the pet smaller inside it. */
+  wheel?: WheelMessage;
+}
+
+export interface WheelMessage {
+  /** The pet's frame is drawn this much smaller, so it fits inside the wheel. */
+  scale: number;
+  turnsPerSecond: number;
+  floor: number;
+  centerX: number;
+  /** [x, y, radius] fractions: turn this circle of the wheel picture; empty = play frames. */
+  hub: number[];
+  /** [x, y, radiusX, radiusY] fractions: draw the pet only inside this ellipse; empty = all of it. */
+  opening: number[];
 }
 
 export interface VoiceListenRequest {

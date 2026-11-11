@@ -69,7 +69,38 @@ export interface SoundConfig {
   chatterMs: { min: number; max: number };
 }
 
+export interface WheelConfig {
+  /** A run in the wheel lasts a random time in [minMs, maxMs]. */
+  minMs: number;
+  maxMs: number;
+  /** The pet is drawn this much smaller inside the wheel (0.3-1), so it fits. */
+  scale: number;
+  turnsPerSecond: number;
+  /** Where the pet's feet go inside the wheel, as a fraction of the window from the top. */
+  floor: number;
+  /** Horizontal centre of the pet inside the wheel, as a fraction of the window. */
+  centerX: number;
+  /**
+   * For a pack's own wheel picture: [x, y, radius] of the wheel's face as fractions of the window.
+   * That circle of the first picture is turned around its centre while the stand stays still.
+   * Empty: the pictures play as frames instead.
+   */
+  hub: number[];
+  /**
+   * For a wheel drawn at an angle: [x, y, radiusX, radiusY] of the opening the pet runs behind, as
+   * fractions of the window. The pet is only drawn inside this ellipse, so the rim hides whatever
+   * sticks out. Empty: the whole pet is drawn.
+   */
+  opening: number[];
+}
+
 export interface PetConfig {
+  /**
+   * What the `run` state is: 'hunt' chases a mouse across the screen (the cat), 'wheel' runs in
+   * place in a wheel drawn around the pet (the hamster).
+   */
+  runMode: 'hunt' | 'wheel';
+  wheel: WheelConfig;
   sounds: SoundConfig;
   /** Window edge length in DIP. Sprites are scaled to this square. */
   size: number;
@@ -95,6 +126,9 @@ export interface PetConfig {
  * pet.json (see pack.ts); sprites, sounds and the icon come from the pack's folder.
  */
 export const DEFAULT_CONFIG: PetConfig = {
+  runMode: 'hunt',
+  // floor and centerX fit the wheel the app draws; a pack with its own wheel.png sets its own.
+  wheel: { minMs: 6_000, maxMs: 12_000, scale: 0.7, turnsPerSecond: 1.2, floor: 0.9325, centerX: 0.5, hub: [], opening: [] },
   sounds: {
     volume: 0.6,
     purrDelayMs: 1_500,

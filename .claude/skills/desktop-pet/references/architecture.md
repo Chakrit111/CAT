@@ -50,6 +50,24 @@ and toggles `setIgnoreMouseEvents`.
 | fall | manual | 8 | 4 | upright, right, upright, left (from art/fall); the pet also starts in fall |
 
 `idleNext` weights: walk 5, sit 2, stand 2, sleep 1, roll 1, chase 1, jump 1, run 1.
+
+`run` has two modes (`config.runMode`, set per pack under `tuning`): `hunt` (the mouse, prey.ts)
+and `wheel` (pets/hamster): the pet stays put for `wheel.minMs`-`maxMs`, `FrameMessage.wheel` tells
+the renderer to draw a turning wheel (own requestAnimationFrame loop) and the frame `wheel.scale`
+times smaller inside it; main's `spritePoint` maps the cursor through the same
+`src/shared/wheel.ts` geometry for hit-testing. Which wheel the renderer draws, in this order:
+1. `wheel-enter/<n>.png` (manifest `wheelEnter`): at the start of each run, the pet alone over
+   `wheel/0.png`, 220 ms a frame, once; the sprite is not drawn meanwhile.
+2. `wheel.hub` `[x, y, r]` set: `wheel/0.png` plus that circle of it rotated (flat, front-on wheels
+   only; a wheel drawn at an angle looks tilted this way).
+3. Pack pictures without `hub`: `wheel/<n>.png` loop, 50 ms a frame (`WHEEL_STEP_MS`). pets/hamster
+   uses this; `scripts/wheel_rungs.py` makes the frames by moving only the rungs between the
+   opening ellipse and the back-plate ellipse.
+4. No pictures: `drawWheel` draws one in code.
+Then the sprite, clipped to the ellipse `wheel.opening` `[x, y, rx, ry]` when set, so the rim hides
+what sticks out. With `flip` the whole canvas is mirrored, wheel included. pets/hamster's run
+frames are already placed inside the opening (`scripts/fit_in_wheel.py`), so its `wheel` has
+`scale: 1`, `floor: 1`, `centerX: 0.5`.
 Click = poke (wake, else roll or chase). Press held > 250 ms or moved > 4 px = drag. Release a
 drag = fall. Commandable states: everything except drag and fall.
 

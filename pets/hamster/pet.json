@@ -1,0 +1,87 @@
+{
+  "$comment": "Hamster pack (ข้าวจี่). run = running in a wheel (tuning.runMode), not chasing a mouse. Originals are in art/ (JPGs with a painted checkerboard), cut-outs in art/cut/ (scripts/remove_checker.py), frames in sprites/<state>/.",
+  "id": "hamster",
+  "productName": "ข้าวจี่",
+  "packageName": "hamster",
+  "appId": "io.github.chakrit111.pet.hamster",
+  "version": "1.0.0",
+  "features": {
+    "voice": false,
+    "hunt": true,
+    "sounds": true
+  },
+  "menu": {
+    "walk": "เดิน",
+    "sit": "นั่ง",
+    "jump": "กระโดด",
+    "chase": "หมุนตัว",
+    "run": "วิ่งในวงล้อ"
+  },
+  "voice": {
+    "language": "th",
+    "phrases": {
+      "sit": [
+        "นั่ง"
+      ],
+      "run": [
+        "วิ่ง"
+      ],
+      "jump": [
+        "กระโดด"
+      ]
+    }
+  },
+  "tuning": {
+    "runMode": "wheel",
+    "wheel": {
+      "scale": 1,
+      "floor": 1,
+      "centerX": 0.5,
+      "opening": [
+        0.4242,
+        0.4273,
+        0.3086,
+        0.3539
+      ]
+    },
+    "walkSpeed": 55,
+    "states": {
+      "walk": {
+        "fps": 4
+      },
+      "run": {
+        "fps": 12
+      },
+      "chase": {
+        "fps": 8,
+        "loops": 2
+      },
+      "idle": {
+        "fps": 4
+      }
+    },
+    "idleNext": [
+      [
+        "walk",
+        5
+      ],
+      [
+        "sit",
+        3
+      ],
+      [
+        "chase",
+        1
+      ],
+      [
+        "jump",
+        1
+      ],
+      [
+        "run",
+        1
+      ]
+    ],
+    "size": 284
+  }
+}

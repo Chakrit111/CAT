@@ -158,6 +158,13 @@ export class Pet {
         break;
 
       case 'run': {
+        if (this.cfg.runMode === 'wheel') {
+          // Running in place in the wheel: no mouse, no travel. Ends after the time set in enter().
+          this.x = clamp(this.x, minX, maxX);
+          this.y = floor;
+          if (this.stateMs >= this.stateLimitMs) this.enter('idle');
+          break;
+        }
         const { hunt } = this.cfg;
         const center = this.x + size / 2;
         this.prey ??= new Prey(hunt, area, center, this.rng);
@@ -305,7 +312,16 @@ export class Pet {
         ? rule.minMs + (rule.maxMs - rule.minMs) * this.rng()
         : Number.POSITIVE_INFINITY;
     this.loopsLeft = rule.kind === 'oneshot' ? rule.loops : 0;
+    if (next === 'run' && this.cfg.runMode === 'wheel') {
+      const { minMs, maxMs } = this.cfg.wheel;
+      this.stateLimitMs = minMs + (maxMs - minMs) * this.rng();
+    }
     if (next === 'walk') this.facing = this.rng() < 0.5 ? 1 : -1;
+  }
+
+  /** Running in its wheel (the `run` state of a pet whose runMode is 'wheel'). */
+  get inWheel(): boolean {
+    return this.state === 'run' && this.cfg.runMode === 'wheel';
   }
 
   private pickNext(): PetState {

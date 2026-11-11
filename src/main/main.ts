@@ -12,8 +12,9 @@ import {
   type MenuItemConstructorOptions,
   type Rectangle,
 } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   IPC,
   type FrameMessage,
@@ -28,6 +29,7 @@ import { Pet, type CommandableState } from './pet';
 import { Sounds, type SoundName } from './sounds';
 import { loadSprites } from './sprites';
 import { Voice } from './voice';
+import { wheelGeometry } from '../shared/wheel';
 
 const TICK_MS = 16;
 /** Cap per-tick dt so a suspended laptop or a stalled event loop cannot teleport the pet. */
@@ -86,6 +88,38 @@ function loginItem(): { path: string; args: string[] } {
 
 /** Login items exist on Windows and macOS only. */
 const LOGIN_ITEMS = process.platform === 'win32' || process.platform === 'darwin';
+
+/**
+ * For tuning voice commands: with PET_VOICE_LOG_DIR set, every recording is kept there as a 16 kHz
+ * WAV with its result in voice-log.jsonl, so thresholds and phrases can be judged on real voices.
+ * Off unless the variable is set; nothing is recorded in normal use.
+ */
+function saveVoiceSample(pcm: Float32Array, result: object): void {
+  const dir = process.env['PET_VOICE_LOG_DIR'];
+  if (!dir) return;
+  try {
+    mkdirSync(dir, { recursive: true });
+    const name = `${new Date().toISOString().replace(/[:.]/g, '-')}.wav`;
+    const data = Buffer.alloc(44 + pcm.length * 2);
+    data.write('RIFF', 0);
+    data.writeUInt32LE(36 + pcm.length * 2, 4);
+    data.write('WAVEfmt ', 8);
+    data.writeUInt32LE(16, 16);
+    data.writeUInt16LE(1, 20);
+    data.writeUInt16LE(1, 22);
+    data.writeUInt32LE(16_000, 24);
+    data.writeUInt32LE(32_000, 28);
+    data.writeUInt16LE(2, 32);
+    data.writeUInt16LE(16, 34);
+    data.write('data', 36);
+    data.writeUInt32LE(pcm.length * 2, 40);
+    pcm.forEach((v, i) => data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, v)) * 32767), 44 + i * 2));
+    writeFileSync(path.join(dir, name), data);
+    appendFileSync(path.join(dir, 'voice-log.jsonl'), `${JSON.stringify({ file: name, ...result })}\n`);
+  } catch (err) {
+    console.warn('[voice] could not save the recording:', err);
+  }
+}
 
 function fail(message: string, err?: unknown): void {
   console.error(`[desktop-pet] ${message}`, err ?? '');
@@ -285,6 +319,14 @@ function createPet(pack: PetPack): void {
     else if (prev === 'jump' && next === 'roll') play('happy');
   };
 
+  /** A point in the window -> the same point on the pet's frame, which is drawn smaller inside the wheel. */
+  const spritePoint = (wx: number, wy: number): [number, number] => {
+    if (!pet.inWheel) return [wx, wy];
+    const { scale, floor, centerX } = CONFIG.wheel;
+    const g = wheelGeometry(size, scale, floor, centerX);
+    return [(wx - g.spriteX) / scale, (wy - g.spriteY) / scale];
+  };
+
   const tick = (): void => {
     if (win.isDestroyed() || hidden) return;
     const now = performance.now();
@@ -318,15 +360,17 @@ function createPet(pack: PetPack): void {
     }
 
     const flip = pet.facing === -1;
-    const key = `${pet.state}:${pet.frame}:${flip}`;
+    const { scale, turnsPerSecond, floor, centerX, hub, opening } = CONFIG.wheel;
+    const wheel = pet.inWheel ? { scale, turnsPerSecond, floor, centerX, hub, opening } : undefined;
+    const key = `${pet.state}:${pet.frame}:${flip}:${wheel ? 'wheel' : ''}`;
     if (key !== sentKey) {
-      const msg: FrameMessage = { state: pet.state, frame: pet.frame, flip };
+      const msg: FrameMessage = { state: pet.state, frame: pet.frame, flip, wheel };
       win.webContents.send(IPC.frame, msg);
       sentKey = key;
     }
 
     const hit =
-      pet.pointerHeld || sprites.isOpaque(pet.state, pet.frame, flip, cursor.x - x, cursor.y - y);
+      pet.pointerHeld || sprites.isOpaque(pet.state, pet.frame, flip, ...spritePoint(cursor.x - x, cursor.y - y));
     if (hit !== interactive) {
       win.setIgnoreMouseEvents(!hit);
       interactive = hit;
@@ -367,7 +411,28 @@ function createPet(pack: PetPack): void {
   // --- IPC -----------------------------------------------------------------
   ipcMain.handle(IPC.manifest, (event) => {
     if (!fromPet(event)) throw new Error('Unexpected sender');
-    return sprites.manifest;
+    // A pack may bring its own wheel pictures; without them the renderer draws a wheel.
+    const wheelDir = path.join(pack.dir, 'wheel');
+    const files = existsSync(wheelDir)
+      ? readdirSync(wheelDir)
+          .filter((f) => /^\d+\.png$/i.test(f))
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+          .map((f) => path.join(wheelDir, f))
+      : existsSync(path.join(pack.dir, 'wheel.png'))
+        ? [path.join(pack.dir, 'wheel.png')]
+        : [];
+    const enterDir = path.join(pack.dir, 'wheel-enter');
+    const enter = existsSync(enterDir)
+      ? readdirSync(enterDir)
+          .filter((f) => /^\d+\.png$/i.test(f))
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+          .map((f) => pathToFileURL(path.join(enterDir, f)).href)
+      : [];
+    return {
+      ...sprites.manifest,
+      ...(files.length ? { wheel: files.map((f) => pathToFileURL(f).href) } : {}),
+      ...(enter.length ? { wheelEnter: enter } : {}),
+    };
   });
 
   ipcMain.on(IPC.ready, (event) => {
@@ -482,10 +547,13 @@ function createPet(pack: PetPack): void {
         if (voiceSession !== session) return; // cancelled while the worker was busy
         const guess = commands.best(scores);
         const clear = guess.score >= CONFIG.voice.minScore;
+        const runnerUp = commands.ranked(scores)[1];
         console.log(
           `[voice] ${clear ? 'heard' : 'unsure, closest was'} "${guess.phrase}" -> ${guess.command} ` +
-            `(score ${guess.score.toFixed(2)}, ${(pcm.length / 16_000).toFixed(1)} s of audio)`,
+            `(score ${guess.score.toFixed(2)}, ${(pcm.length / 16_000).toFixed(1)} s of audio)` +
+            (runnerUp ? `; next "${runnerUp.phrase}" ${runnerUp.score.toFixed(2)}` : ''),
         );
+        saveVoiceSample(pcm, { phrase: guess.phrase, command: guess.command, score: guess.score, clear, runnerUp });
         closeVoice(); // first: play() stays silent while a session is open
         if (clear) {
           play('meow');
