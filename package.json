@@ -9,18 +9,17 @@
     "build": "node build.mjs",
     "start": "npm run build && electron .",
     "shortcut": "npm run build && node scripts/shortcut.mjs",
-    "dist": "npm run build && electron-builder --win portable"
+    "dist": "node scripts/build-pet.mjs donut-cat",
+    "build-pet": "node scripts/build-pet.mjs",
+    "new-pet": "node scripts/new-pet.mjs",
+    "check-pet": "node scripts/check-pet.mjs",
+    "import-sprites": "python -I scripts/fit_frames.py",
+    "preview": "python -I scripts/contact_sheet.py"
   },
   "build": {
-    "appId": "io.github.chakrit111.desktoppet",
-    "productName": "Desktop Pet",
-    "directories": {
-      "output": "release"
-    },
     "files": [
       "dist/**/*",
       "!dist/**/*.map",
-      "assets/**/*",
       "package.json",
       "!node_modules/onnxruntime-web/**",
       "!node_modules/onnxruntime-node/bin/*/darwin/**",
@@ -33,10 +32,7 @@
       "node_modules/@img/**"
     ],
     "win": {
-      "icon": "assets/icon.ico"
-    },
-    "portable": {
-      "artifactName": "Desktop-Pet-${version}-portable.exe"
+      "target": "portable"
     }
   },
   "devDependencies": {

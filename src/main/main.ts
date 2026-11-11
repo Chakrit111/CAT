@@ -12,16 +12,20 @@ import {
   type MenuItemConstructorOptions,
   type Rectangle,
 } from 'electron';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   IPC,
   type FrameMessage,
   type MouseMessage,
+  type PetState,
+  type SoundMessage,
   type VoiceListenRequest,
 } from '../shared/types';
-import { bestCommand, VOICE_PHRASES } from './commands';
-import { CONFIG } from './config';
+import { VoiceCommands } from './commands';
+import { loadPack, PackError, type PetPack } from './pack';
 import { Pet, type CommandableState } from './pet';
+import { Sounds, type SoundName } from './sounds';
 import { loadSprites } from './sprites';
 import { Voice } from './voice';
 
@@ -34,22 +38,67 @@ const VOICE_GRACE_MS = 4_000;
 /** Recordings are 16 kHz mono. Outside 0.2 s - 15 s there is nothing worth transcribing. */
 const VOICE_MIN_SAMPLES = 16_000 * 0.2;
 const VOICE_MAX_SAMPLES = 16_000 * 15;
-/** Tray icon, relative to the app folder. Electron can only read .ico on Windows. */
-const TRAY_ICON = 'assets/icon.ico';
+/** build.mjs copies the selected pet pack (pets/<id>/) here. */
+const PACK_DIR = path.join(__dirname, 'pet');
+/** The speech model is the engine's, not a pet's: every pet shares one download. */
+const MODEL_CACHE = (): string => path.join(app.getPath('appData'), 'desktop-pet', 'models');
+/** Title for error dialogs; the pack's product name once it is loaded. */
+let appTitle = 'Desktop Pet';
+
+/** What the user can switch from the menus, kept in `<userData>/settings.json` between runs. */
+interface Settings {
+  sounds: boolean;
+}
+
+const settingsFile = (): string => path.join(app.getPath('userData'), 'settings.json');
+
+function loadSettings(): Settings {
+  try {
+    const saved: unknown = JSON.parse(readFileSync(settingsFile(), 'utf8'));
+    if (typeof saved === 'object' && saved !== null && 'sounds' in saved && typeof saved.sounds === 'boolean') {
+      return { sounds: saved.sounds };
+    }
+  } catch {
+    // First run, or the file is unreadable: use the defaults.
+  }
+  return { sounds: true };
+}
+
+function saveSettings(settings: Settings): void {
+  try {
+    writeFileSync(settingsFile(), JSON.stringify(settings, null, 2));
+  } catch (err) {
+    console.warn('[desktop-pet] could not save settings:', err);
+  }
+}
+
+/**
+ * What Windows runs at login to start this copy of the pet. The portable exe unpacks itself to a
+ * new temp folder on every start, so it is registered by its own path (electron-builder passes it
+ * in PORTABLE_EXECUTABLE_FILE), not by the unpacked copy that is running. In development it is
+ * electron.exe with the project folder.
+ */
+function loginItem(): { path: string; args: string[] } {
+  const portable = process.env['PORTABLE_EXECUTABLE_FILE'];
+  if (portable) return { path: portable, args: [] };
+  return { path: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] };
+}
+
+/** Login items exist on Windows and macOS only. */
+const LOGIN_ITEMS = process.platform === 'win32' || process.platform === 'darwin';
 
 function fail(message: string, err?: unknown): void {
   console.error(`[desktop-pet] ${message}`, err ?? '');
-  dialog.showErrorBox('Desktop Pet', err instanceof Error ? `${message}\n\n${err.message}` : message);
+  dialog.showErrorBox(appTitle, err instanceof Error ? `${message}\n\n${err.message}` : message);
   app.exit(1);
 }
 
-function createPet(): void {
+function createPet(pack: PetPack): void {
+  const CONFIG = pack.config;
   const { size } = CONFIG;
-  const sprites = loadSprites(
-    path.join(app.getAppPath(), CONFIG.sprites),
-    size,
-    CONFIG.alphaThreshold,
-  );
+  const sprites = loadSprites(path.join(pack.dir, 'sprites'), size, CONFIG.alphaThreshold);
+  const sounds = new Sounds(path.join(pack.dir, 'sounds'));
+  const settings = loadSettings();
 
   let area: Rectangle = screen.getPrimaryDisplay().workArea;
   // Spawn at the top of the screen and drop in.
@@ -63,6 +112,7 @@ function createPet(): void {
     y: Math.round(pet.y),
     width: size,
     height: size,
+    title: pack.productName,
     show: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -79,8 +129,11 @@ function createPet(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // The cat meows on its own (purring when it falls asleep), not only right after a click.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
+  win.on('page-title-updated', (event) => event.preventDefault()); // keep the pack's name, not index.html's
   win.setVisibleOnAllWorkspaces(true);
   // Click-through by default; the tick loop turns it off only while the cursor is over the cat.
   win.setIgnoreMouseEvents(true);
@@ -130,12 +183,17 @@ function createPet(): void {
       contents === win.webContents && permission === 'media' && details.mediaType !== 'video',
   );
 
-  const voice = new Voice(path.join(__dirname, 'whisper-worker.js'), {
-    model: CONFIG.voice.model,
-    language: CONFIG.voice.language,
-    phrases: VOICE_PHRASES,
-    cacheDir: path.join(app.getPath('userData'), 'models'),
-  });
+  // Packs without voice never start the speech worker (or download its 240 MB model).
+  const commands = new VoiceCommands(pack.phrases);
+  const voice =
+    pack.features.voice && commands.phrases.length > 0
+      ? new Voice(path.join(__dirname, 'whisper-worker.js'), {
+          model: CONFIG.voice.model,
+          language: CONFIG.voice.language,
+          phrases: commands.phrases,
+          cacheDir: MODEL_CACHE(),
+        })
+      : null;
 
   const fromPet = (event: IpcMainEvent | IpcMainInvokeEvent): boolean =>
     event.sender === win.webContents;
@@ -155,6 +213,77 @@ function createPet(): void {
   let mouseKey = '';
   /** Set from the tray: the windows are hidden and the pet stands still until it is shown again. */
   let hidden = false;
+  let lastState: PetState = pet.state;
+
+  // --- sounds --------------------------------------------------------------
+  let purrAt = Number.POSITIVE_INFINITY;
+
+  const sendSound = (msg: SoundMessage): void => {
+    if (!win.isDestroyed()) win.webContents.send(IPC.sound, msg);
+  };
+
+  /** The cat has one voice: a new sound cuts off the one playing. */
+  const play = (name: SoundName): void => {
+    // Never while hidden, and never into the microphone during a voice command.
+    if (!pack.features.sounds || !settings.sounds || hidden || voiceSession !== 0) return;
+    const url = sounds.pick(name);
+    if (url) sendSound({ url, volume: CONFIG.sounds.volume });
+  };
+
+  const hush = (): void => sendSound({ url: null, volume: 0 });
+
+  const setSoundsOn = (on: boolean): void => {
+    settings.sounds = on;
+    saveSettings(settings);
+    if (!on) hush();
+    tray?.setContextMenu(trayMenu());
+  };
+
+  const soundsItems = (): MenuItemConstructorOptions[] =>
+    pack.features.sounds
+      ? [{ label: 'Sounds', type: 'checkbox', checked: settings.sounds, click: (item) => setSoundsOn(item.checked) }]
+      : [];
+
+  /** "Start with Windows": read from and written to the system's login items, so it is never out of date. */
+  const startupItems = (): MenuItemConstructorOptions[] =>
+    LOGIN_ITEMS
+      ? [
+          {
+            label: process.platform === 'win32' ? 'Start with Windows' : 'Open at login',
+            type: 'checkbox',
+            checked: app.getLoginItemSettings(loginItem()).openAtLogin,
+            click: (item) => {
+              app.setLoginItemSettings({ openAtLogin: item.checked, ...loginItem() });
+              tray?.setContextMenu(trayMenu());
+            },
+          },
+        ]
+      : [];
+
+  const nextChatter = (): number => {
+    const { min, max } = CONFIG.sounds.chatterMs;
+    return performance.now() + min + Math.random() * (max - min);
+  };
+  let chatterAt = nextChatter();
+
+  /** The occasional unprompted sound: a purr while asleep, a meow otherwise, nothing while busy. */
+  const chatter = (): void => {
+    const state = pet.state;
+    if (state === 'sleep') play('purr');
+    else if (state !== 'drag' && state !== 'fall' && state !== 'jump' && state !== 'run') {
+      play(Math.random() < 0.5 ? 'meow' : 'mew');
+    }
+  };
+
+  /** Sounds that come from what the cat does by itself; the ones answering the user are played where they happen. */
+  const onStateChange = (prev: PetState, next: PetState): void => {
+    purrAt = next === 'sleep' ? performance.now() + CONFIG.sounds.purrDelayMs : Number.POSITIVE_INFINITY;
+    if (next === 'drag') play('purr'); // picked up
+    // Let go after a drag. The drop at start-up does not count: the pet starts out falling.
+    else if (next === 'fall') play('happy');
+    // Jump to roll only happens when a pounce lands on the mouse (clicks are ignored mid-air).
+    else if (prev === 'jump' && next === 'roll') play('happy');
+  };
 
   const tick = (): void => {
     if (win.isDestroyed() || hidden) return;
@@ -164,6 +293,19 @@ function createPet(): void {
 
     const cursor = screen.getCursorScreenPoint();
     pet.update(dt, area, cursor);
+
+    if (pet.state !== lastState) {
+      onStateChange(lastState, pet.state);
+      lastState = pet.state;
+    }
+    if (pet.state === 'sleep' && now >= purrAt) {
+      purrAt = Number.POSITIVE_INFINITY;
+      play('purr');
+    }
+    if (now >= chatterAt) {
+      chatterAt = nextChatter();
+      chatter();
+    }
 
     const x = Math.round(pet.x);
     const y = Math.round(pet.y);
@@ -241,8 +383,11 @@ function createPet(): void {
   });
 
   ipcMain.on(IPC.pointerUp, (event) => {
+    if (!fromPet(event)) return;
+    const pressed = pet.pointerHeld; // pointer-up also arrives on blur, with no press behind it
     // After a drag the pet may have been dropped on another display.
-    if (fromPet(event) && pet.pointerUp()) refreshArea();
+    if (pet.pointerUp()) refreshArea();
+    else if (pressed) play('mew'); // it was a click
   });
 
   const command = (label: string, state: CommandableState): MenuItemConstructorOptions => ({
@@ -259,20 +404,15 @@ function createPet(): void {
     if (closest !== undefined) {
       notes.push({ label: `Not sure I heard that. Closest: "${closest}"`, enabled: false });
     }
-    if (voice.status !== 'ready') notes.push({ label: voice.label, enabled: false });
+    if (voice && voice.status !== 'ready') notes.push({ label: voice.label, enabled: false });
     if (notes.length > 0) notes.push({ type: 'separator' });
 
     menu = Menu.buildFromTemplate([
       ...notes,
-      command('Walk', 'walk'),
-      command('Sit', 'sit'),
-      command('Stand', 'stand'),
-      command('Sleep', 'sleep'),
-      command('Roll over', 'roll'),
-      command('Jump', 'jump'),
-      command('Chase the donut', 'chase'),
-      command('Chase the mouse', 'run'),
+      ...pack.menu.map(([state, label]) => command(label, state)),
       { type: 'separator' },
+      ...soundsItems(),
+      ...startupItems(),
       { label: 'Quit', click: () => app.quit() },
     ]);
     // By the time a voice attempt ends the cursor may be elsewhere, so that menu opens on the cat.
@@ -301,6 +441,7 @@ function createPet(): void {
     win.webContents.send(IPC.voiceListen, request);
     voiceTimer = setTimeout(() => {
       closeVoice();
+      play('question');
       showMenu(true);
     }, CONFIG.voice.maxMs + VOICE_GRACE_MS);
   };
@@ -310,7 +451,7 @@ function createPet(): void {
     if (voiceSession !== 0) {
       closeVoice(); // right-click again to skip straight to the menu
       showMenu();
-    } else if (voice.status === 'ready') {
+    } else if (voice?.status === 'ready') {
       openVoice();
     } else {
       showMenu();
@@ -318,7 +459,7 @@ function createPet(): void {
   });
 
   ipcMain.on(IPC.voiceAudio, (event, pcm: unknown, error: unknown) => {
-    if (!fromPet(event) || voiceSession === 0) return;
+    if (!voice || !fromPet(event) || voiceSession === 0) return;
     const session = voiceSession;
     clearTimeout(voiceTimer);
 
@@ -330,6 +471,7 @@ function createPet(): void {
     ) {
       console.log('[voice] nothing heard');
       closeVoice();
+      play('question');
       showMenu(true);
       return;
     }
@@ -338,20 +480,26 @@ function createPet(): void {
       .score(pcm)
       .then((scores) => {
         if (voiceSession !== session) return; // cancelled while the worker was busy
-        const guess = bestCommand(scores);
+        const guess = commands.best(scores);
         const clear = guess.score >= CONFIG.voice.minScore;
         console.log(
           `[voice] ${clear ? 'heard' : 'unsure, closest was'} "${guess.phrase}" -> ${guess.command} ` +
             `(score ${guess.score.toFixed(2)}, ${(pcm.length / 16_000).toFixed(1)} s of audio)`,
         );
-        closeVoice();
-        if (clear) pet.command(guess.command);
-        else showMenu(true, guess.phrase);
+        closeVoice(); // first: play() stays silent while a session is open
+        if (clear) {
+          play('meow');
+          pet.command(guess.command);
+        } else {
+          play('question');
+          showMenu(true, guess.phrase);
+        }
       })
       .catch((err: unknown) => {
         console.error('[voice] recognition failed:', err);
         if (voiceSession !== session) return;
         closeVoice();
+        play('question');
         showMenu(true);
       });
   });
@@ -367,12 +515,14 @@ function createPet(): void {
     hidden = hide;
     if (hide) {
       if (voiceSession !== 0) closeVoice(); // never leave the microphone open behind a hidden pet
+      hush();
       win.hide();
       if (!mouseWin.isDestroyed()) mouseWin.hide();
       mouseShown = false;
     } else if (timer) {
       // Without a timer the renderer is not ready yet, and IPC.ready will show the window.
       last = performance.now();
+      chatterAt = nextChatter(); // the clock ran on while hidden; no meow the moment it reappears
       win.showInactive();
     }
     tray?.setContextMenu(trayMenu());
@@ -381,6 +531,8 @@ function createPet(): void {
   const trayMenu = (): Menu =>
     Menu.buildFromTemplate([
       { label: hidden ? 'Show' : 'Hide', click: () => setHidden(!hidden) },
+      ...soundsItems(),
+      ...startupItems(),
       { type: 'separator' },
       { label: 'Quit', click: () => app.quit() },
     ]);
@@ -388,12 +540,13 @@ function createPet(): void {
   const unhide = (): void => setHidden(false);
   app.on('second-instance', unhide);
 
-  const trayIcon = nativeImage.createFromPath(path.join(app.getAppPath(), TRAY_ICON));
+  const iconFile = path.join(pack.dir, 'icon.ico');
+  const trayIcon = nativeImage.createFromPath(iconFile);
   if (trayIcon.isEmpty()) {
-    console.warn(`[desktop-pet] could not read ${TRAY_ICON}; running without a tray icon`);
+    console.warn(`[desktop-pet] could not read ${iconFile}; running without a tray icon`);
   } else {
     tray = new Tray(trayIcon);
-    tray.setToolTip('Desktop Pet');
+    tray.setToolTip(pack.productName);
     tray.setContextMenu(trayMenu());
     tray.on('click', () => setHidden(!hidden));
   }
@@ -412,7 +565,7 @@ function createPet(): void {
     clearTimeout(readyTimeout);
     clearTimeout(voiceTimer);
     clearInterval(timer);
-    voice.dispose();
+    voice?.dispose();
     tray?.destroy();
     app.off('second-instance', unhide);
     if (!mouseWin.isDestroyed()) mouseWin.destroy();
@@ -429,15 +582,32 @@ function createPet(): void {
   });
 }
 
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-} else {
+function start(): void {
+  let pack: PetPack;
+  try {
+    pack = loadPack(PACK_DIR);
+  } catch (err) {
+    // A broken pet.json: say exactly what is wrong instead of starting a half-configured pet.
+    fail(err instanceof PackError ? 'This pet pack has problems:' : 'Could not load the pet pack.', err);
+    return;
+  }
+  appTitle = pack.productName;
+  // One settings folder and one single-instance lock per pet, so two client pets never collide.
+  // Must happen before the lock is requested.
+  app.setPath('userData', path.join(app.getPath('appData'), pack.packageName));
+
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return;
+  }
   app.on('window-all-closed', () => app.quit());
   app
     .whenReady()
     .then(() => {
       if (process.platform === 'darwin') app.dock?.hide();
-      createPet();
+      createPet(pack);
     })
     .catch((err: unknown) => fail('Failed to start.', err));
 }
+
+start();

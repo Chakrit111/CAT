@@ -32,6 +32,13 @@ export interface VoiceListenRequest {
   maxMs: number;
 }
 
+export interface SoundMessage {
+  /** file:// URL of the sound to play, cutting off the one playing; null = stop the one playing. */
+  url: string | null;
+  /** 0..1 */
+  volume: number;
+}
+
 export interface MouseMessage {
   /** true = mirror horizontally. The mouse is drawn facing right. */
   flip: boolean;
@@ -53,6 +60,8 @@ export interface PetApi {
   onVoiceEnd(listener: () => void): void;
   /** 16 kHz mono samples of what was said, or null if nothing was heard or the mic failed. */
   voiceAudio(pcm: Float32Array | null, error?: string): void;
+  /** Main tells the cat to make a sound, or to stop the one it is making. */
+  onSound(listener: (msg: SoundMessage) => void): void;
 }
 
 /** API exposed to the mouse window through its preload script. */
@@ -70,5 +79,6 @@ export const IPC = {
   voiceListen: 'pet:voice-listen',
   voiceEnd: 'pet:voice-end',
   voiceAudio: 'pet:voice-audio',
+  sound: 'pet:sound',
   mouseState: 'mouse:state',
 } as const;

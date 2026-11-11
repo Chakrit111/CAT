@@ -46,7 +46,7 @@ export interface HuntConfig {
 export interface VoiceConfig {
   /** Hugging Face id of an ONNX Whisper model. Downloaded on first run, then cached. */
   model: string;
-  /** Whisper language code of the phrases in commands.ts, e.g. 'th'. */
+  /** Whisper language code of the pack's voice phrases, e.g. 'th' (pet.json `voice.language`). */
   language: string;
   /** How long a right-click listens before falling back to the menu. */
   maxMs: number;
@@ -60,9 +60,17 @@ export interface VoiceConfig {
   minScore: number;
 }
 
+export interface SoundConfig {
+  /** 0..1 */
+  volume: number;
+  /** Purring starts this long after the cat falls asleep, so it never cuts off a meow. */
+  purrDelayMs: number;
+  /** Now and then the cat makes a sound on its own; the gap between two is random in [min, max]. */
+  chatterMs: { min: number; max: number };
+}
+
 export interface PetConfig {
-  /** Sprite set to load, relative to the app folder. Frames are `<this>/<state>/<n>.png`. */
-  sprites: string;
+  sounds: SoundConfig;
   /** Window edge length in DIP. Sprites are scaled to this square. */
   size: number;
   /** Horizontal walk speed, px/s. */
@@ -82,8 +90,16 @@ export interface PetConfig {
   voice: VoiceConfig;
 }
 
-export const CONFIG: PetConfig = {
-  sprites: 'assets/sprites-3d/sprites',
+/**
+ * The engine's defaults. A pet pack overrides any of them in the `tuning` section of its
+ * pet.json (see pack.ts); sprites, sounds and the icon come from the pack's folder.
+ */
+export const DEFAULT_CONFIG: PetConfig = {
+  sounds: {
+    volume: 0.6,
+    purrDelayMs: 1_500,
+    chatterMs: { min: 4 * 60_000, max: 6 * 60_000 }, // about every 5 minutes
+  },
   size: 160,
   walkSpeed: 70,
   gravity: 2400,
@@ -101,7 +117,8 @@ export const CONFIG: PetConfig = {
     // Jump frames follow the arc (0 = crouch, the rest spread over the flight), so fps is unused.
     jump: { kind: 'manual', fps: 1 },
     run: { kind: 'manual', fps: 14 },
-    drag: { kind: 'manual', fps: 6 },
+    // 4 frames swinging centre, right, centre, left: one full swing per second.
+    drag: { kind: 'manual', fps: 4 },
     fall: { kind: 'manual', fps: 8 },
   },
   idleNext: [

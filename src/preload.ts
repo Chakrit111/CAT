@@ -3,6 +3,7 @@ import {
   IPC,
   type FrameMessage,
   type PetApi,
+  type SoundMessage,
   type SpriteManifest,
   type VoiceListenRequest,
 } from './shared/types';
@@ -23,6 +24,9 @@ const api: PetApi = {
     ipcRenderer.on(IPC.voiceEnd, () => listener());
   },
   voiceAudio: (pcm, error) => ipcRenderer.send(IPC.voiceAudio, pcm, error),
+  onSound: (listener) => {
+    ipcRenderer.on(IPC.sound, (_event, msg: SoundMessage) => listener(msg));
+  },
 };
 
 contextBridge.exposeInMainWorld('pet', api);

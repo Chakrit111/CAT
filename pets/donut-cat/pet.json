@@ -1,0 +1,34 @@
+{
+  "$comment": "Pet pack: names, features, menu, voice phrases and tuning for this pet. sprites/, sounds/ and icon.ico sit next to this file; art/ holds the original artwork and is not shipped. Any setting from src/main/config.ts can be overridden under tuning.",
+  "id": "donut-cat",
+  "productName": "Desktop Pet",
+  "packageName": "desktop-pet",
+  "appId": "io.github.chakrit111.desktoppet",
+  "version": "0.1.0",
+  "features": { "voice": true, "hunt": true, "sounds": true },
+  "menu": {
+    "walk": "Walk",
+    "sit": "Sit",
+    "stand": "Stand",
+    "sleep": "Sleep",
+    "roll": "Roll over",
+    "jump": "Jump",
+    "chase": "Chase the donut",
+    "run": "Chase the mouse"
+  },
+  "voice": {
+    "language": "th",
+    "phrases": {
+      "run": ["ไล่หนู", "จับหนู", "วิ่งไล่หนู", "ไปจับหนู", "ล่าหนู", "หนู", "วิ่ง"],
+      "chase": ["โดนัท", "ไล่โดนัท", "หมุน", "หมุนตัว", "ไล่หาง"],
+      "jump": ["กระโดด", "โดด"],
+      "stand": ["ยืน", "ยืนขึ้น", "ลุก", "ลุกขึ้น"],
+      "sit": ["นั่ง", "นั่งลง"],
+      "sleep": ["นอน", "ไปนอน", "นอนหลับ", "หลับ"],
+      "roll": ["กลิ้ง", "กลิ้งตัว", "ม้วนตัว"],
+      "walk": ["เดิน", "ไปเดิน", "เดินเล่น"],
+      "idle": ["ตื่น", "ตื่นได้แล้ว", "หยุด"]
+    }
+  },
+  "tuning": {}
+}

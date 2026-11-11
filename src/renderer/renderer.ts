@@ -44,6 +44,27 @@ async function main(): Promise<void> {
     }),
   );
 
+  // --- sounds ---------------------------------------------------------------
+  // One voice at a time, like a real cat: a new sound cuts off the one playing.
+  let playing: HTMLAudioElement | null = null;
+  const stopSound = (): void => {
+    playing?.pause();
+    playing = null;
+  };
+  window.pet.onSound(({ url, volume }) => {
+    stopSound();
+    if (url === null) return;
+    const audio = new Audio(url);
+    audio.volume = volume;
+    playing = audio;
+    audio.addEventListener('ended', () => {
+      if (playing === audio) playing = null;
+    });
+    audio.play().catch((err: unknown) => {
+      console.error(`[sound] could not play ${url}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  });
+
   // --- voice: mic badge above the cat ----------------------------------------
   type VoiceUi = 'off' | 'listening' | 'thinking';
   let voiceUi: VoiceUi = 'off';
@@ -217,7 +238,10 @@ async function main(): Promise<void> {
     }
   };
 
-  window.pet.onVoiceListen(({ maxMs }) => void listen(maxMs));
+  window.pet.onVoiceListen(({ maxMs }) => {
+    stopSound(); // a purr or a meow would end up in the recording
+    void listen(maxMs);
+  });
   window.pet.onVoiceEnd(() => {
     voiceSession += 1;
     voiceUi = 'off';

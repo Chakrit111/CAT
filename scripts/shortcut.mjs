@@ -2,7 +2,7 @@
 // the pet without a terminal. Run it through `npm run shortcut`, which builds first: the shortcut
 // starts the last build in dist/, not the sources, and points at this folder.
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,14 +29,14 @@ const script = `
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$link = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Desktop Pet.lnk'
+$link = Join-Path ([Environment]::GetFolderPath('Desktop')) ($env:PET_NAME + '.lnk')
 $existed = Test-Path -LiteralPath $link
 $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
 $shortcut.TargetPath = $env:PET_ELECTRON
 $shortcut.Arguments = '"' + $env:PET_ROOT + '"'
 $shortcut.WorkingDirectory = $env:PET_ROOT
 $shortcut.IconLocation = $env:PET_ICON + ',0'
-$shortcut.Description = 'Desktop Pet'
+$shortcut.Description = $env:PET_NAME
 $shortcut.Save()
 if ($existed) { 'Updated ' + $link } else { 'Created ' + $link }
 `;
@@ -51,7 +51,9 @@ try {
         ...process.env,
         PET_ROOT: root,
         PET_ELECTRON: electron,
-        PET_ICON: path.join(root, 'assets', 'icon.ico'),
+        // The pet last built into dist/ (pets/donut-cat unless PET was set): its icon and name.
+        PET_ICON: path.join(root, 'dist', 'pet', 'icon.ico'),
+        PET_NAME: JSON.parse(readFileSync(path.join(root, 'dist', 'pet', 'pet.json'), 'utf8')).productName,
       },
       stdio: ['ignore', 'pipe', 'inherit'],
     },

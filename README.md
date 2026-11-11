@@ -10,8 +10,12 @@ npm install
 npm start          # build + launch
 npm run typecheck  # tsc --noEmit
 npm run shortcut   # Windows: build + put a "Desktop Pet" shortcut on the desktop
-npm run dist       # Windows: build release/Desktop-Pet-<version>-portable.exe
+npm run dist       # Windows: build release/donut-cat/Desktop-Pet-<version>-portable.exe
 ```
+
+Everything that makes this cat this cat (names, sprites, sounds, icon, menu, voice phrases,
+tuning) is a **pet pack** in `pets/donut-cat/`. The rest is an engine that can run any pack; see
+[Pets for clients](#pets-for-clients).
 
 Requires Node 22.12+ (Electron 45). Quit from the right-click menu on the pet or from the tray icon.
 
@@ -23,17 +27,23 @@ already running brings a hidden pet back instead of starting a second one.
 ### Portable .exe
 
 `npm run dist` packages the pet with electron-builder into one file,
-`release/Desktop-Pet-<version>-portable.exe` (about 140 MB). It runs on any 64-bit Windows
+`release/donut-cat/Desktop-Pet-<version>-portable.exe` (about 140 MB). Close the pet first: a
+running copy locks the exe, and the build refuses to start while it runs. It runs on any 64-bit Windows
 machine without Node.js or installing anything: double-click it. Each start unpacks the app to a
 temporary folder first, so the cat takes about 10 s to appear. The speech model is not inside the
 exe; it is downloaded on first use, as above, and shared with `npm start`.
+
+**Start with Windows** in either menu makes Windows start the pet when you sign in. It registers
+whichever copy is running: the portable exe at its own path (so keep the exe where it is), or, in
+development, `electron.exe` with this folder. Turn it off from the same menu item; it is an
+ordinary entry under Settings → Apps → Startup.
 
 The exe is not code-signed, so on another machine Windows SmartScreen may say "Windows protected
 your PC"; choose More info → Run anyway. `release/` is not committed: the exe is over GitHub's
 100 MB file limit, so share it another way (a GitHub Release, for example).
 
-The first launch downloads the speech model (about 240 MB) into `%APPDATA%\desktop-pet\models`;
-later launches load it from there in a few seconds. Voice also needs Windows to let desktop apps
+The first launch downloads the speech model (about 240 MB) into `%APPDATA%\desktop-pet\models`
+(shared by every pet that uses voice); later launches load it from there in a few seconds. Voice also needs Windows to let desktop apps
 use the microphone (Settings → Privacy & security → Microphone).
 
 ## Controls
@@ -43,8 +53,8 @@ use the microphone (Settings → Privacy & security → Microphone).
 | Click | Wakes it if asleep, otherwise rolls or chases the donut |
 | Drag | Pick it up; it falls back to the floor when released (works across displays) |
 | Right-click | Listens for a spoken command. Opens the menu instead if nothing clear was said, on a second right-click, or while the speech model is still loading |
-| Menu | Walk / Sit / Stand / Sleep / Roll over / Jump / Chase the donut / Chase the mouse / Quit |
-| Tray icon (Windows) | Click hides or shows the pet. Right-click for Hide / Show and Quit. New tray icons start under the `^` of hidden icons; drag it onto the taskbar to keep it in view |
+| Menu | Walk / Sit / Stand / Sleep / Roll over / Jump / Chase the donut / Chase the mouse / Sounds (on/off) / Start with Windows (on/off) / Quit |
+| Tray icon (Windows) | Click hides or shows the pet. Right-click for Hide / Show, Sounds, Start with Windows and Quit. New tray icons start under the `^` of hidden icons; drag it onto the taskbar to keep it in view |
 
 Transparent pixels are click-through; only the cat itself receives the mouse.
 
@@ -69,13 +79,38 @@ Recognition is closed-set. Whisper (`onnx-community/whisper-small`, run locally 
 process) does not transcribe what you said; it scores every phrase above against the recording
 and the best fit wins. Free transcription of one-word Thai commands was wrong most of the time
 with a model this size. The consequence is that only these phrases can be heard: add your own
-in `src/main/commands.ts`.
+under `voice.phrases` in `pets/donut-cat/pet.json`.
 
 Every attempt is logged to the terminal, for example
 `[voice] heard "นั่ง" -> sit (score -0.55, 1.9 s of audio)`. The score is the average
-log-probability per token (0 = certain). Below `voice.minScore` in `src/main/config.ts` (-2)
+log-probability per token (0 = certain). Below `voice.minScore` (-2; `tuning.voice.minScore` in pet.json)
 the menu opens instead of the command running. Raise it if stray speech sets the cat off,
 lower it if real commands are turned away.
+
+## Sounds
+
+The cat meows back. Each sound is a folder in `pets/donut-cat/sounds/`; every time, one file from it
+is picked at random (never the same one twice in a row), and a new sound cuts off the one
+playing.
+
+| Folder | Played when |
+| --- | --- |
+| `meow` | A voice command was understood |
+| `question` | A voice command was not understood, or nothing was heard (the menu opens) |
+| `mew` | You click the cat |
+| `happy` | It catches the mouse, or you let go of it and it falls |
+| `purr` | You pick it up, or it falls asleep (1.5 s later) |
+| `annoyed` | Not played at the moment; kept for later |
+| `meow` or `mew`, `purr` if asleep | Now and then on its own, every 4-6 minutes (not while it is busy being dragged, falling, jumping or hunting) |
+
+Turn sounds on or off with **Sounds** in the cat's right-click menu or the tray menu; the choice
+is kept in `%APPDATA%\desktop-pet\settings.json`. The cat is always quiet while it listens for a
+voice command (so it cannot hear itself) and while hidden.
+
+`scripts/meow-synth.mjs` synthesises cartoon meows (`node scripts/meow-synth.mjs pets/<id>/sounds`
+writes a full set; the `annoyed` ones in donut-cat came from it). Any `.wav`, `.mp3` or `.ogg`
+files work; a folder left empty is silent. Volume, the purr delay and how often it meows on its
+own (`chatterMs`) are `sounds` in `src/main/config.ts`, overridable under `tuning.sounds`.
 
 ## The mouse
 
@@ -90,9 +125,9 @@ code (`src/renderer/mouse.ts`) in its own click-through window.
 
 ## Sprites
 
-Frames live in `assets/sprites-3d/sprites/<state>/<n>.png` and play in numeric file-name order.
-The folder is the `sprites` setting in `src/main/config.ts`. A state with no folder falls back
-to `idle`.
+Frames live in `pets/<id>/sprites/<state>/<n>.png` and play in numeric file-name order. A state
+with no frames falls back to `idle`. Put original artwork in `pets/<id>/art/<state>/` (not
+shipped) and fit it with `npm run import-sprites` (see below).
 
 In the shipped set, `run` and `jump` are **placeholders** made by leaning and stretching frames
 of `walk`, `fall` and `idle`. `stand` has no folder, because `idle` already stands on four legs.
@@ -121,9 +156,53 @@ Frame requirements:
 
 ## Tuning
 
-`src/main/config.ts`: sprite folder, window size, walk speed, gravity, per-state fps and
-durations, the weights for what the pet does after idling, jump height, the hunt (speeds,
-ranges, time limit) and voice (model, language, listening time, `minScore`).
+`src/main/config.ts` holds the engine's defaults: sound volume, window size, walk speed, gravity,
+per-state fps and durations, the weights for what the pet does after idling, jump height, the
+hunt (speeds, ranges, time limit) and voice (model, listening time, `minScore`). A pack changes
+any of them under `tuning` in its pet.json, only the keys it needs:
+
+```json
+"tuning": { "walkSpeed": 90, "states": { "drag": { "fps": 6 } }, "sounds": { "volume": 0.4 } }
+```
+
+A misspelt or wrongly typed key is not ignored: the pet refuses to start and lists every problem.
+
+## Pets for clients
+
+One engine, one folder per pet:
+
+```
+pets/<id>/
+  pet.json        id, productName (exe and tray name), packageName (settings folder, unique per
+                  pet), appId, version, features, menu, voice, tuning
+  icon.ico        tray, exe and shortcut icon (needs a 256x256 image)
+  sprites/<state>/0.png, 1.png, ...
+  sounds/<sound>/*.wav|mp3|ogg
+  art/            the client's original artwork (not shipped)
+```
+
+`features` switches parts on or off per pet: `voice` (Thai voice commands; adds the 240 MB
+speech model on first run; off by default for new pets), `hunt` (the mouse; off removes it from
+the menu and from what the pet does by itself), `sounds`. `menu` lists the commands shown in the
+right-click menu, in order, with their labels. Each pet keeps its own settings in
+`%APPDATA%\<packageName>`, so two pets never share settings or block each other.
+
+```bash
+npm run new-pet -- acme-cat --name "Acme Cat"     # empty pack (or --from donut-cat to copy one)
+npm run import-sprites -- pets/acme-cat/art/idle pets/acme-cat/sprites/idle --scale-by height --anchor bottom --target 220 --preview release
+python -I scripts/make_icon.py pets/acme-cat/sprites/idle/0.png pets/acme-cat/icon.ico release/icon.png 100,40,260,200
+npm run preview -- pets/acme-cat/sprites release/acme-cat-sprites.png
+npm run check-pet -- acme-cat                     # what is missing or wrong
+npm run build-pet -- acme-cat --run               # try it (no exe)
+npm run build-pet -- acme-cat                     # release/acme-cat/Acme-Cat-1.0.0-portable.exe
+```
+
+`import-sprites` (`scripts/fit_frames.py`, Python with Pillow) scales every frame of a pose by the
+same factor and places it on a 320x320 canvas: feet on the floor (`--anchor bottom`), the middle
+kept still for poses in the air (`--anchor center`), or a coloured marker such as the donut collar
+kept in place (`--anchor marker`), with `--order` for play order and a GIF preview. Run it with
+`--help` for every option. `npm start` and `npm run build` use `pets/donut-cat` unless the `PET`
+environment variable names another pack.
 
 ## Layout
 
@@ -132,16 +211,25 @@ src/main/main.ts            windows, tick loop, IPC, menu, tray icon, voice sess
 src/main/pet.ts             state machine + physics (pure, no Electron imports)
 src/main/prey.ts            the hunted mouse (pure)
 src/main/sprites.ts         sprite discovery + alpha masks for hit-testing
-src/main/commands.ts        voice phrases and picking the best fit
+src/main/sounds.ts          sound discovery and picking a file to play
+src/main/commands.ts        picking the voice phrase that fits best
 src/main/voice.ts           starts the speech worker and talks to it
 src/main/whisper-worker.ts  Whisper, in a utility process
-src/main/config.ts          tuning
+src/main/config.ts          the engine's default tuning
+src/main/pack.ts            loads and checks a pet pack (dist/pet/pet.json)
 src/preload.ts              contextBridge API for the pet window
 src/mouse-preload.ts        contextBridge API for the mouse window
 src/renderer/               pet canvas, mic badge and recording; mouse canvas
 src/shared/types.ts         IPC contract
+pets/<id>/                   pet packs (see Pets for clients); pets/donut-cat is this cat
+build.mjs                   bundles the code and copies the pack named by PET into dist/pet
+scripts/build-pet.mjs       exe for one pack (npm run build-pet / dist)
+scripts/new-pet.mjs         starts a pack;  scripts/check-pet.mjs  checks one
+scripts/fit_frames.py       fits artwork into frames (npm run import-sprites)
+scripts/contact_sheet.py    one image of every state (npm run preview)
+scripts/make_icon.py        multi-size .ico from a frame
 scripts/shortcut.mjs        makes the Windows desktop shortcut (npm run shortcut)
-assets/icon.ico             tray and shortcut icon
+scripts/meow-synth.mjs      synthesises cartoon cat sounds
 ```
 
 The main process owns position, state and frame index. Each tick it polls the cursor,
@@ -162,6 +250,6 @@ tick loop.
   Chromium's fake microphone): 11 of 12 commands came out right, and "ตื่น" was heard as "เดิน".
 - The speech worker calls `_encode_input`, a method internal to transformers.js, so
   `@huggingface/transformers` is pinned to 4.3.2.
-- No auto-start and no installer, only the portable exe. The `build` section of `package.json`
+- No installer, only the portable exe, and it is not code-signed. The `build` section of `package.json`
   keeps `onnxruntime-node` and `sharp` (native addons) outside the asar archive and leaves out
   the onnxruntime builds for other platforms; keep that in mind when adding dependencies.
