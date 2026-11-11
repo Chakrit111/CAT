@@ -45,6 +45,9 @@ export function checkPet(root, id) {
     errors.push('pet.json: packageName may only use a-z, 0-9 and "-"');
   }
   if (pet.version && !/^\d+\.\d+\.\d+$/.test(pet.version)) errors.push('pet.json: version must look like 1.0.0');
+  if (pet.update !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(pet.update?.repo ?? '')) {
+    errors.push('pet.json: update.repo must be a GitHub repository, "owner/name"');
+  }
   const features = { voice: false, hunt: true, sounds: true, ...(pet.features ?? {}) };
   if (features.voice && Object.keys(pet.voice?.phrases ?? {}).length === 0) {
     errors.push('pet.json: features.voice is on but voice.phrases is empty');
@@ -110,6 +113,15 @@ export function checkPet(root, id) {
   }
   info.push(`features: ${Object.entries(features).map(([k, v]) => `${k} ${v ? 'on' : 'off'}`).join(', ')}`);
   return { errors, warnings, info, pet };
+}
+
+/**
+ * File name of a pet's portable exe. A productName with no ASCII letters (Thai, for example) would
+ * leave only dashes: then the package name is used.
+ */
+export function exeName(pet) {
+  const safe = pet.productName.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || pet.packageName;
+  return `${safe}-${pet.version}-portable.exe`;
 }
 
 export function report(id, { errors, warnings, info }) {

@@ -5,6 +5,7 @@
   "packageName": "desktop-pet",
   "appId": "io.github.chakrit111.desktoppet",
   "version": "0.1.0",
+  "update": { "repo": "Chakrit111/CAT" },
   "features": { "voice": true, "hunt": true, "sounds": true },
   "menu": {
     "walk": "Walk",

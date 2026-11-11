@@ -11,6 +11,7 @@
     "shortcut": "npm run build && node scripts/shortcut.mjs",
     "dist": "node scripts/build-pet.mjs donut-cat",
     "build-pet": "node scripts/build-pet.mjs",
+    "publish-pet": "node scripts/publish-pet.mjs",
     "new-pet": "node scripts/new-pet.mjs",
     "check-pet": "node scripts/check-pet.mjs",
     "import-sprites": "python -I scripts/fit_frames.py",

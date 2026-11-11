@@ -28,6 +28,7 @@ import { loadPack, PackError, type PetPack } from './pack';
 import { Pet, type CommandableState } from './pet';
 import { Sounds, type SoundName } from './sounds';
 import { loadSprites } from './sprites';
+import { applyUpdate, cleanUpdateLeftovers, pendingUpdate, Updater } from './update';
 import { Voice } from './voice';
 import { wheelGeometry } from '../shared/wheel';
 
@@ -85,6 +86,17 @@ function loginItem(): { path: string; args: string[] } {
   if (portable) return { path: portable, args: [] };
   return { path: process.execPath, args: app.isPackaged ? [] : [app.getAppPath()] };
 }
+
+/**
+ * The exe that updates replace: the portable exe this pet was started from. In development there
+ * is none, unless PET_UPDATE_EXE names a stand-in file to try the updater on.
+ */
+function updateTarget(): string | undefined {
+  return process.env['PORTABLE_EXECUTABLE_FILE'] ?? (app.isPackaged ? undefined : process.env['PET_UPDATE_EXE']);
+}
+
+/** The helper script that swaps the exe once the pet has exited (see update.ts). */
+const updateScript = (pack: PetPack): string => path.join(app.getPath('temp'), `${pack.packageName}-update.cmd`);
 
 /** Login items exist on Windows and macOS only. */
 const LOGIN_ITEMS = process.platform === 'win32' || process.platform === 'darwin';
@@ -294,6 +306,37 @@ function createPet(pack: PetPack): void {
         ]
       : [];
 
+  // --- updates ---------------------------------------------------------------
+  const exe = updateTarget();
+  const updater =
+    exe && pack.update && process.platform === 'win32'
+      ? new Updater({
+          id: pack.id,
+          version: pack.version,
+          exe,
+          // Development only: PET_UPDATE_API points the updater at a local stand-in for GitHub.
+          api: (!app.isPackaged && process.env['PET_UPDATE_API']) || `https://api.github.com/repos/${pack.update.repo}/releases?per_page=50`,
+          downloads: (!app.isPackaged && process.env['PET_UPDATE_DOWNLOADS']) || `https://github.com/${pack.update.repo}/releases/download/`,
+          onReady: () => tray?.setContextMenu(trayMenu()),
+        })
+      : undefined;
+  updater?.start();
+  const updateItems = (): MenuItemConstructorOptions[] =>
+    exe && updater?.ready
+      ? [
+          {
+            label: `Restart to update (${updater.ready})`,
+            click: () => {
+              if (applyUpdate(exe, updateScript(pack), true)) app.quit();
+            },
+          },
+        ]
+      : [];
+  // Quitting with an update waiting: the helper swaps the exe in once this process is gone.
+  app.on('will-quit', () => {
+    if (exe && pendingUpdate(exe)) applyUpdate(exe, updateScript(pack), false);
+  });
+
   const nextChatter = (): number => {
     const { min, max } = CONFIG.sounds.chatterMs;
     return performance.now() + min + Math.random() * (max - min);
@@ -478,6 +521,7 @@ function createPet(pack: PetPack): void {
       { type: 'separator' },
       ...soundsItems(),
       ...startupItems(),
+      ...updateItems(),
       { label: 'Quit', click: () => app.quit() },
     ]);
     // By the time a voice attempt ends the cursor may be elsewhere, so that menu opens on the cat.
@@ -601,6 +645,7 @@ function createPet(pack: PetPack): void {
       { label: hidden ? 'Show' : 'Hide', click: () => setHidden(!hidden) },
       ...soundsItems(),
       ...startupItems(),
+      ...updateItems(),
       { type: 'separator' },
       { label: 'Quit', click: () => app.quit() },
     ]);
@@ -667,6 +712,16 @@ function start(): void {
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
+  }
+  // An update that was downloaded but never swapped in (Windows shut down before the pet could
+  // quit): swap it now and start again, instead of running the old version once more.
+  const exe = updateTarget();
+  if (exe) {
+    cleanUpdateLeftovers(exe);
+    if (pendingUpdate(exe) && applyUpdate(exe, updateScript(pack), true)) {
+      app.quit();
+      return;
+    }
   }
   app.on('window-all-closed', () => app.quit());
   app

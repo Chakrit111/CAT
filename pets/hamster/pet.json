@@ -5,6 +5,9 @@
   "packageName": "hamster",
   "appId": "io.github.chakrit111.pet.hamster",
   "version": "1.0.0",
+  "update": {
+    "repo": "Chakrit111/CAT"
+  },
   "features": {
     "voice": false,
     "hunt": true,

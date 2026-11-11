@@ -31,7 +31,7 @@ for (const p of asar.listPackage(archive).map(norm)) {
 }
 
 const onDisk = [];
-for (const name of ['pet.json', 'icon.ico', 'sprites', 'sounds']) {
+for (const name of ['pet.json', 'icon.ico', 'wheel', 'wheel-enter', 'wheel.png', 'sprites', 'sounds']) {
   const top = path.join(pack, name);
   if (!fs.existsSync(top)) continue;
   (function walk(p) {

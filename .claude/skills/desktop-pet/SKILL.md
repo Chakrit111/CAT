@@ -118,8 +118,13 @@ npm run build-pet -- <id>           # release\<id>\<Product-Name>-<ver>-portable
   `Start-Process '<repo>\release\donut-cat\Desktop-Pet-0.1.0-portable.exe'` - never with
   `--remote-debugging-port`, which would leave the app controllable by any local process. Their
   Start with Windows entry points at that path.
-- The GitHub release v0.1.0 still has an old exe; rebuilds do not update it. Publishing: ask first,
-  then `gh release create` / `gh release upload --clobber` (gh is logged in as Chakrit111). Push uses
+- Pets update themselves (src/main/update.ts) from releases tagged `<id>-v<version>` in the repo
+  named by pet.json `update.repo`. To ship one: raise `version` in pet.json, `npm run build-pet --
+  <id>`, then - only after the user says so - `npm run publish-pet -- <id> --notes "..."`. A
+  published release reaches every running copy within 6 hours and cannot be taken back from them.
+  Testing the updater without publishing: references/testing.md.
+- The GitHub release v0.1.0 (old style, no pet id in the tag) still has an old exe; pets ignore it.
+  Publishing anything: ask first (gh is logged in as Chakrit111). Push uses
   Git Credential Manager. Do not read stored tokens yourself - the safety classifier blocks it and
   it is not yours to take.
 

@@ -199,6 +199,27 @@ npm run build-pet -- acme-cat --run               # try it (no exe)
 npm run build-pet -- acme-cat                     # release/acme-cat/Acme-Cat-1.0.0-portable.exe
 ```
 
+### Updates
+
+A pet whose pet.json has `"update": { "repo": "owner/name" }` keeps its portable exe up to date
+from that GitHub repository's releases. One minute after it starts, and every 6 hours, it looks
+for a release tagged `<id>-v<version>` later than its own, downloads the exe next to itself and
+checks it against the release's `.sha256`. Windows does not let a running exe be replaced, so the
+new one is swapped in when the pet quits (or from **Restart to update** in the menus, or at the
+next start if Windows shut down first). The exe keeps its file name, so the shortcut and Start
+with Windows still point at it. Without `update` the pet never looks.
+
+```bash
+# raise "version" in pets/acme-cat/pet.json first
+npm run build-pet -- acme-cat                     # the exe and its .sha256
+npm run publish-pet -- acme-cat --notes "what changed"   # gh release create acme-cat-v1.0.1 ...
+```
+
+`publish-pet` needs the gh CLI signed in; add `--dry-run` to see the command only. The release is
+public at once, and anyone can download the exe from a public repository. The checksum guards
+against a broken download, not against someone who can publish to the repository; the exe is not
+code-signed. Each update is the whole exe (about 130 MB).
+
 A pack can bring its own wheel, as pets/hamster does (all pictures 320x320, drawn window-sized):
 
 - `wheel.png` or `wheel/<n>.png`: the wheel, drawn behind the pet. Several frames loop, 50 ms each.
@@ -245,6 +266,7 @@ src/main/voice.ts           starts the speech worker and talks to it
 src/main/whisper-worker.ts  Whisper, in a utility process
 src/main/config.ts          the engine's default tuning
 src/main/pack.ts            loads and checks a pet pack (dist/pet/pet.json)
+src/main/update.ts          self-update of the portable exe from GitHub Releases
 src/preload.ts              contextBridge API for the pet window
 src/mouse-preload.ts        contextBridge API for the mouse window
 src/renderer/               pet canvas, mic badge and recording; mouse canvas
@@ -252,6 +274,7 @@ src/shared/types.ts         IPC contract
 pets/<id>/                   pet packs (see Pets for clients); pets/donut-cat is this cat
 build.mjs                   bundles the code and copies the pack named by PET into dist/pet
 scripts/build-pet.mjs       exe for one pack (npm run build-pet / dist)
+scripts/publish-pet.mjs     publishes a built exe as a GitHub release (npm run publish-pet)
 scripts/new-pet.mjs         starts a pack;  scripts/check-pet.mjs  checks one
 scripts/remove_checker.py   cuts figures out of pictures with a painted checkerboard background
 scripts/cut_black.py        cuts a picture drawn on a black background

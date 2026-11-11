@@ -17,6 +17,10 @@ export interface PetPack {
   productName: string;
   /** Names the settings folder in %APPDATA% and the single-instance lock: unique per pet. */
   packageName: string;
+  /** "1.0.0"; the updater compares it with the published releases. */
+  version: string;
+  /** GitHub repository whose releases the portable exe updates itself from; null = it never updates. */
+  update: { repo: string } | null;
   features: { voice: boolean; hunt: boolean; sounds: boolean };
   /** Right-click menu entries, in order. A command not listed is not in the menu. */
   menu: ReadonlyArray<readonly [CommandableState, string]>;
@@ -27,7 +31,7 @@ export interface PetPack {
 }
 
 const COMMANDS = PET_STATES.filter((s): s is CommandableState => s !== 'drag' && s !== 'fall');
-const TOP_LEVEL = ['$comment', 'id', 'productName', 'packageName', 'appId', 'version', 'features', 'menu', 'voice', 'tuning'];
+const TOP_LEVEL = ['$comment', 'id', 'productName', 'packageName', 'appId', 'version', 'update', 'features', 'menu', 'voice', 'tuning'];
 
 /** Thrown with every problem found in a pet.json, one per line, so a pack can be fixed in one go. */
 export class PackError extends Error {}
@@ -61,6 +65,15 @@ export function loadPack(dir: string): PetPack {
   const productName = text('productName');
   const packageName = text('packageName');
   need(/^[a-z0-9][a-z0-9-]*$/.test(packageName), '"packageName" may only use a-z, 0-9 and "-" (it names a folder)');
+
+  const version = typeof pet['version'] === 'string' ? pet['version'] : '0.0.0';
+  let update: PetPack['update'] = null;
+  if (pet['update'] !== undefined) {
+    const repo = isObject(pet['update']) ? pet['update']['repo'] : undefined;
+    if (need(typeof repo === 'string' && /^[\w.-]+\/[\w.-]+$/.test(repo), 'update.repo must be a GitHub repository, "owner/name"')) {
+      update = { repo: repo as string };
+    }
+  }
 
   const features = { voice: false, hunt: true, sounds: true };
   const f = pet['features'];
@@ -117,7 +130,7 @@ export function loadPack(dir: string): PetPack {
   }
 
   if (problems.length > 0) throw new PackError(`${file}:\n${problems.map((p) => `- ${p}`).join('\n')}`);
-  return { dir, id, productName, packageName, features, menu, phrases, config };
+  return { dir, id, productName, packageName, version, update, features, menu, phrases, config };
 }
 
 /**

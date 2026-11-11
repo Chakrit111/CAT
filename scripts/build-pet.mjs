@@ -2,11 +2,12 @@
 // usage: node scripts/build-pet.mjs <id> [--run]      (npm run build-pet -- <id>)
 //   --run   only build dist/ with that pack and start it (no exe): to try a pack quickly.
 import { execFileSync, spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkPet, report } from './check-pet.mjs';
+import { checkPet, exeName as exeNameOf, report } from './check-pet.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const id = process.argv[2];
@@ -20,7 +21,7 @@ const result = checkPet(root, id);
 report(id, result);
 if (result.errors.length) process.exit(1);
 const pet = result.pet;
-const exeName = `${pet.productName.replace(/[^A-Za-z0-9._-]+/g, '-')}-${pet.version}-portable.exe`;
+const exeName = exeNameOf(pet);
 
 // A running copy of this pet locks the exe that the build replaces, and the build then waits forever.
 if (!runOnly && process.platform === 'win32') {
@@ -55,5 +56,9 @@ if (runOnly) {
       extraMetadata: { name: pet.packageName, version: pet.version, productName: pet.productName },
     },
   });
-  console.log(`\nbuilt ${path.join(root, output, exeName)}`);
+  // The checksum goes into the release next to the exe: running pets verify an update against it.
+  const exePath = path.join(root, output, exeName);
+  const sha = createHash('sha256').update(readFileSync(exePath)).digest('hex');
+  writeFileSync(`${exePath}.sha256`, `${sha}  ${exeName}\n`);
+  console.log(`\nbuilt ${exePath}\n      ${exeName}.sha256`);
 }

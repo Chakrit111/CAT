@@ -76,6 +76,27 @@ the login item with
 - Listening to synthesised sounds: open the WAV with `Start-Process`; the user's output device is
   in the tray volume button's name (UIA, `Shell_TrayWnd`).
 
+## Testing the updater without publishing
+
+Dev builds only honour three variables (a packaged exe ignores them):
+`PET_UPDATE_EXE` = a stand-in file to "update", `PET_UPDATE_API` = release-list URL,
+`PET_UPDATE_DOWNLOADS` = prefix asset URLs must have.
+
+1. Scratch folder with a stand-in `hamster-1.0.0-portable.exe` (any small file) and a payload to
+   serve as the new exe (a copy of `C:\Windows\System32\whoami.exe` is harmless if relaunched).
+2. `node .claude/skills/desktop-pet/scripts/update-server.cjs <payload> 8765 [bad]` - a fake
+   GitHub release list for pet `hamster` (1.0.1 plus releases that must be ignored: another pet,
+   older, draft, foreign host). `bad` serves a wrong checksum.
+3. Start the dev pet with `PET_UPDATE_EXE=<stand-in>`, `PET_UPDATE_API=http://127.0.0.1:8765/releases`,
+   `PET_UPDATE_DOWNLOADS=http://127.0.0.1:8765/dl/`, stdout to a log. The first check runs after 60 s.
+   Expect `[update] downloading 1.0.1` then `... is ready`, and `<stand-in>.new` with the payload's
+   SHA-256; with `bad`: `does not match the release checksum` and no `.new` or `.download`.
+4. Menu "Restart to update (1.0.1)" (menu.ps1 -Click), or Quit, swaps the stand-in; a `.new` present
+   at start is swapped at once and the pet quits.
+5. The real exe (locked while running): copy the built exe to a scratch folder, put a copy next to
+   it as `<name>.new`, start it - within about 50 s the `.new` is gone, the exe has the copy's
+   timestamp and the pet is running again.
+
 ## 6. Finish
 
 Stop the test pet (`TaskStop` the background task, then kill leftover processes), remove temp

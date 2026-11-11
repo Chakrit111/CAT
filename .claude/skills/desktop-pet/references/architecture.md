@@ -68,6 +68,16 @@ Then the sprite, clipped to the ellipse `wheel.opening` `[x, y, rx, ry]` when se
 what sticks out. With `flip` the whole canvas is mirrored, wheel included. pets/hamster's run
 frames are already placed inside the opening (`scripts/fit_in_wheel.py`), so its `wheel` has
 `scale: 1`, `floor: 1`, `centerX: 0.5`.
+
+Updates (`update.ts`, Windows portable exe only, pack needs `update.repo`): `Updater.check()` reads
+the GitHub release list, `pickRelease` takes the latest `<id>-v<x.y.z>` later than `pack.version`
+whose assets are on the repo's own download path, the exe is streamed to `<exe>.download`, checked
+(size + SHA-256 from `<exe name>.sha256`) and renamed `<exe>.new`. A running portable exe cannot be
+renamed (EBUSY), so `applyUpdate` renames `.new` to `.swap` and starts a detached `cmd` helper
+(`%TEMP%\<packageName>-update.cmd`, paths passed in env vars) that retries `move` until the exe is
+free, then optionally starts it. Called from: `will-quit`, the menu item "Restart to update (v)",
+and `start()` when `.new` is found at launch. `<exe>` is `PORTABLE_EXECUTABLE_FILE`.
+
 Click = poke (wake, else roll or chase). Press held > 250 ms or moved > 4 px = drag. Release a
 drag = fall. Commandable states: everything except drag and fall.
 
