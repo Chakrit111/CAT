@@ -4,6 +4,7 @@ import { PET_STATES } from '../shared/types';
 import type { PhraseTable } from './commands';
 import { DEFAULT_CONFIG, type PetConfig } from './config';
 import type { CommandableState } from './pet';
+import { DEFAULT_CLAUDE_TEXT, type ClaudeText } from './sessions';
 
 /**
  * A pet pack: everything that makes one pet that pet. On disk (pets/<id>/ in the repo, dist/pet/
@@ -21,7 +22,9 @@ export interface PetPack {
   version: string;
   /** GitHub repository whose releases the portable exe updates itself from; null = it never updates. */
   update: { repo: string } | null;
-  features: { voice: boolean; hunt: boolean; sounds: boolean };
+  features: { voice: boolean; hunt: boolean; sounds: boolean; claude: boolean };
+  /** What the pet says about Claude Code sessions: the engine's words with the pack's `claude` section applied. */
+  claudeText: ClaudeText;
   /** Right-click menu entries, in order. A command not listed is not in the menu. */
   menu: ReadonlyArray<readonly [CommandableState, string]>;
   /** Voice phrases per command; empty when voice is off. */
@@ -31,7 +34,7 @@ export interface PetPack {
 }
 
 const COMMANDS = PET_STATES.filter((s): s is CommandableState => s !== 'drag' && s !== 'fall');
-const TOP_LEVEL = ['$comment', 'id', 'productName', 'packageName', 'appId', 'version', 'update', 'features', 'menu', 'voice', 'tuning'];
+const TOP_LEVEL = ['$comment', 'id', 'productName', 'packageName', 'appId', 'version', 'update', 'features', 'menu', 'voice', 'claude', 'tuning'];
 
 /** Thrown with every problem found in a pet.json, one per line, so a pack can be fixed in one go. */
 export class PackError extends Error {}
@@ -75,11 +78,11 @@ export function loadPack(dir: string): PetPack {
     }
   }
 
-  const features = { voice: false, hunt: true, sounds: true };
+  const features = { voice: false, hunt: true, sounds: true, claude: false };
   const f = pet['features'];
   if (f !== undefined && need(isObject(f), '"features" must be an object')) {
     for (const [k, v] of Object.entries(f as Record<string, Json>)) {
-      if (!need(k in features, `unknown feature "${k}" (voice, hunt, sounds)`)) continue;
+      if (!need(k in features, `unknown feature "${k}" (voice, hunt, sounds, claude)`)) continue;
       if (need(typeof v === 'boolean', `features.${k} must be true or false`)) features[k as keyof typeof features] = v as boolean;
     }
   }
@@ -115,7 +118,20 @@ export function loadPack(dir: string): PetPack {
     }
   }
 
+  // The pack's own words for sessions; any it leaves out stay the engine's.
+  const claudeText: ClaudeText = { ...DEFAULT_CLAUDE_TEXT };
+  const words = pet['claude'];
+  if (words !== undefined && need(isObject(words), '"claude" must be an object of text: words')) {
+    for (const [k, v] of Object.entries(words as Record<string, Json>)) {
+      if (!need(k in claudeText, `claude: "${k}" is not a text (${Object.keys(claudeText).join(', ')})`)) continue;
+      if (need(typeof v === 'string' && v.trim() !== '', `claude.${k} must be a non-empty string`)) {
+        claudeText[k as keyof ClaudeText] = v as string;
+      }
+    }
+  }
+
   if (pet['tuning'] !== undefined) merge(config as unknown as Record<string, Json>, pet['tuning'], 'tuning', problems);
+  need(Number.isInteger(config.claude.port) && config.claude.port >= 1024 && config.claude.port <= 65535, 'tuning.claude.port must be a port number from 1024 to 65535');
   need(config.runMode === 'hunt' || config.runMode === 'wheel', 'tuning.runMode must be "hunt" or "wheel"');
   need(config.wheel.scale >= 0.3 && config.wheel.scale <= 1, 'tuning.wheel.scale must be between 0.3 and 1');
   need(config.wheel.minMs <= config.wheel.maxMs, 'tuning.wheel.minMs must not be above maxMs');
@@ -130,7 +146,7 @@ export function loadPack(dir: string): PetPack {
   }
 
   if (problems.length > 0) throw new PackError(`${file}:\n${problems.map((p) => `- ${p}`).join('\n')}`);
-  return { dir, id, productName, packageName, version, update, features, menu, phrases, config };
+  return { dir, id, productName, packageName, version, update, features, claudeText, menu, phrases, config };
 }
 
 /**

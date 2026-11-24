@@ -105,6 +105,22 @@ export class Pet {
   }
 
   /**
+   * Go after this mouse instead of one of the hunt game's own (a Claude session's mouse, once the
+   * session is done). The hunt then runs like any other: `prey` is this mouse until it is caught
+   * or gone.
+   * @returns false while the pet cannot start: in the air, being carried, busy with another mouse,
+   *          or not a hunter at all. Ask again later.
+   */
+  hunt(prey: Prey): boolean {
+    if (this.cfg.runMode !== 'hunt') return false;
+    if (this.state === 'drag' || this.state === 'fall' || this.state === 'jump') return false;
+    if (this.prey && this.prey !== prey) return false;
+    this.prey = prey;
+    this.enter('run');
+    return true;
+  }
+
+  /**
    * Advance the simulation.
    * @param dtMs   elapsed time since the previous call
    * @param area   work area of the display the pet lives on

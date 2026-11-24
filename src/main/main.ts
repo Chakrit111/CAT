@@ -23,6 +23,7 @@ import {
   type SoundMessage,
   type VoiceListenRequest,
 } from '../shared/types';
+import { ClaudeSessions, ON_ALL_DESKTOPS } from './claude';
 import { VoiceCommands } from './commands';
 import { loadPack, PackError, type PetPack } from './pack';
 import { Pet, type CommandableState } from './pet';
@@ -180,7 +181,7 @@ function createPet(pack: PetPack): void {
     },
   });
   win.on('page-title-updated', (event) => event.preventDefault()); // keep the pack's name, not index.html's
-  win.setVisibleOnAllWorkspaces(true);
+  win.setVisibleOnAllWorkspaces(true, ON_ALL_DESKTOPS);
   // Click-through by default; the tick loop turns it off only while the cursor is over the cat.
   win.setIgnoreMouseEvents(true);
 
@@ -208,7 +209,7 @@ function createPet(pack: PetPack): void {
       sandbox: true,
     },
   });
-  mouseWin.setVisibleOnAllWorkspaces(true);
+  mouseWin.setVisibleOnAllWorkspaces(true, ON_ALL_DESKTOPS);
   mouseWin.setIgnoreMouseEvents(true);
   let mouseLoaded = false;
   mouseWin.webContents.once('did-finish-load', () => {
@@ -277,6 +278,12 @@ function createPet(pack: PetPack): void {
   };
 
   const hush = (): void => sendSound({ url: null, volume: 0 });
+
+  // --- Claude Code sessions ----------------------------------------------------
+  // Packs without the feature open no port and no extra windows.
+  const claude = pack.features.claude
+    ? new ClaudeSessions({ pack, pet, play, onChange: () => tray?.setContextMenu(trayMenu()) })
+    : null;
 
   const setSoundsOn = (on: boolean): void => {
     settings.sounds = on;
@@ -419,8 +426,11 @@ function createPet(pack: PetPack): void {
       interactive = hit;
     }
 
+    claude?.tick(dt, area, { x, y, headroom: pet.inWheel ? 0 : sprites.headroom[pet.state] });
+
     if (mouseWin.isDestroyed()) return;
-    const prey = pet.prey;
+    // A session's mouse is drawn on the strip of session mice, not in the hunt game's window.
+    const prey = claude?.owns(pet.prey) ? null : pet.prey;
     if (!prey) {
       if (mouseShown) {
         mouseWin.hide();
@@ -517,6 +527,7 @@ function createPet(pack: PetPack): void {
 
     menu = Menu.buildFromTemplate([
       ...notes,
+      ...(claude?.menuItems(true) ?? []),
       ...pack.menu.map(([state, label]) => command(label, state)),
       { type: 'separator' },
       ...soundsItems(),
@@ -625,6 +636,7 @@ function createPet(pack: PetPack): void {
   const setHidden = (hide: boolean): void => {
     if (hide === hidden || win.isDestroyed()) return;
     hidden = hide;
+    claude?.setHidden(hide);
     if (hide) {
       if (voiceSession !== 0) closeVoice(); // never leave the microphone open behind a hidden pet
       hush();
@@ -642,6 +654,7 @@ function createPet(pack: PetPack): void {
 
   const trayMenu = (): Menu =>
     Menu.buildFromTemplate([
+      ...(claude?.menuItems(false) ?? []),
       { label: hidden ? 'Show' : 'Hide', click: () => setHidden(!hidden) },
       ...soundsItems(),
       ...startupItems(),
@@ -679,6 +692,7 @@ function createPet(pack: PetPack): void {
     clearTimeout(voiceTimer);
     clearInterval(timer);
     voice?.dispose();
+    claude?.dispose();
     tray?.destroy();
     app.off('second-instance', unhide);
     if (!mouseWin.isDestroyed()) mouseWin.destroy();

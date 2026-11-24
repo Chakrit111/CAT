@@ -48,7 +48,7 @@ export function checkPet(root, id) {
   if (pet.update !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(pet.update?.repo ?? '')) {
     errors.push('pet.json: update.repo must be a GitHub repository, "owner/name"');
   }
-  const features = { voice: false, hunt: true, sounds: true, ...(pet.features ?? {}) };
+  const features = { voice: false, hunt: true, sounds: true, claude: false, ...(pet.features ?? {}) };
   if (features.voice && Object.keys(pet.voice?.phrases ?? {}).length === 0) {
     errors.push('pet.json: features.voice is on but voice.phrases is empty');
   }

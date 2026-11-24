@@ -85,9 +85,45 @@ export interface PetApi {
   onSound(listener: (msg: SoundMessage) => void): void;
 }
 
+/** done: a turn finished. waiting: the session needs the user. failed: the turn ended on an error. */
+export type BubbleTone = 'done' | 'waiting' | 'failed';
+
+export interface BubbleMessage {
+  text: string;
+  tone: BubbleTone;
+  /** Where the bubble's tail points (the pet's middle), px from the bubble window's left edge. */
+  tail: number;
+}
+
+/** One session's mouse on the strip along the floor. */
+export interface FieldMouse {
+  /** Left edge of the mouse, px from the strip's left edge. */
+  x: number;
+  flip: boolean;
+  moving: boolean;
+  /** The session's name, written above the mouse. */
+  label: string;
+  /** The session waits for the user: the label stands out. */
+  waiting: boolean;
+}
+
+export interface FieldMessage {
+  /** Edge length of a mouse in DIP. */
+  size: number;
+  /** Room above the mice for their labels, DIP. */
+  labelHeight: number;
+  mice: FieldMouse[];
+}
+
 /** API exposed to the mouse window through its preload script. */
 export interface MouseApi {
   onState(listener: (msg: MouseMessage) => void): void;
+}
+
+/** API exposed to the bubble window and to the strip of session mice (they only ever listen). */
+export interface OverlayApi {
+  onBubble(listener: (msg: BubbleMessage) => void): void;
+  onField(listener: (msg: FieldMessage) => void): void;
 }
 
 export const IPC = {
@@ -102,4 +138,6 @@ export const IPC = {
   voiceAudio: 'pet:voice-audio',
   sound: 'pet:sound',
   mouseState: 'mouse:state',
+  bubble: 'overlay:bubble',
+  field: 'overlay:field',
 } as const;

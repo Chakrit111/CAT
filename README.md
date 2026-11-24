@@ -123,6 +123,48 @@ speed, so the quick ones usually make it out.
 Hunts start on command, from the menu, and now and then on their own. The mouse is drawn in
 code (`src/renderer/mouse.ts`) in its own click-through window.
 
+## Claude Code sessions
+
+With `"claude": true` under `features` in pet.json (on for donut-cat), the pet shows what the
+Claude Code sessions on this machine are doing:
+
+- **Bubble.** A speech bubble over the pet when a session finishes its turn (green), needs you
+  for a permission prompt or an answer (amber, up to 20 s or until you answer) or stops on an
+  error (red). With several things to say, the bubbles take turns.
+- **A mouse per session.** Every session at work has a mouse on the floor with the session's
+  name over it: the name the Claude app shows in its list, or the project's folder name while a
+  session has none yet. While the session waits for you the mouse stands still and its name turns
+  amber. When the turn is done the cat goes and catches it; a session that is closed or fails just
+  sends its mouse off the screen. Count the mice to see how much is still running. A pet whose
+  `run` is a wheel shows the mice but does not catch them; with `"hunt": false` there are none.
+- **Menu.** The right-click menu (and the tray menu) lists every session with its status and how
+  long it has been in it, those that need you first. Clicking a row repeats its bubble.
+
+Sessions report through Claude Code's hooks. Connect them once:
+
+```
+npm run claude-hooks                # what is registered, and what install would add
+npm run claude-hooks -- install     # adds the pet's hook to ~/.claude/settings.json
+npm run claude-hooks -- remove      # takes it out again
+```
+
+`install` only adds its own entries (other hooks in the file stay), keeps a copy of the file as
+it was (`settings.json.before-desktop-pet`) and writes the full paths of this Node and of
+`scripts/claude-hook.mjs` into the command, so run it again after moving the folder or changing
+Node. Sessions that are already open pick the hooks up when they are restarted.
+
+The hook is an observer: it runs in the background (`async`), prints nothing, always exits 0 and
+gives up at once when the pet is not running. It passes on five things of each report: the
+session's id and name, the event name, the working directory and the notification type. The name
+comes from the report or, when the report has none, from the title record the app keeps in the
+session's transcript; nothing else of the transcript is used. Prompts, tool calls and answers stay
+in Claude Code. The pet listens on `127.0.0.1:47625` only and takes nothing but
+those reports; `tuning.claude.port` changes the port (then install with `--port <n>`).
+
+The words are the pack's: the `claude` section of pet.json sets the bubbles (`done`, `failed`,
+`permission`, `waiting`, with `{project}` for the session's name) and the menu's status words
+(`statusWorking`, `statusWaiting`, `statusDone`, `statusFailed`, `statusIdle`).
+
 ## Sprites
 
 Frames live in `pets/<id>/sprites/<state>/<n>.png` and play in numeric file-name order. A state
@@ -264,18 +306,24 @@ src/main/sounds.ts          sound discovery and picking a file to play
 src/main/commands.ts        picking the voice phrase that fits best
 src/main/voice.ts           starts the speech worker and talks to it
 src/main/whisper-worker.ts  Whisper, in a utility process
+src/main/sessions.ts        Claude Code sessions: what each one is doing (pure)
+src/main/session-server.ts  the local port the hooks report to
+src/main/claude.ts          bubble, a mouse per session and the menu rows
 src/main/config.ts          the engine's default tuning
 src/main/pack.ts            loads and checks a pet pack (dist/pet/pet.json)
 src/main/update.ts          self-update of the portable exe from GitHub Releases
 src/preload.ts              contextBridge API for the pet window
 src/mouse-preload.ts        contextBridge API for the mouse window
-src/renderer/               pet canvas, mic badge and recording; mouse canvas
+src/overlay-preload.ts      contextBridge API for the bubble and the strip of session mice
+src/renderer/               pet canvas, mic badge and recording; mouse canvas; bubble; session mice
 src/shared/types.ts         IPC contract
 pets/<id>/                   pet packs (see Pets for clients); pets/donut-cat is this cat
 build.mjs                   bundles the code and copies the pack named by PET into dist/pet
 scripts/build-pet.mjs       exe for one pack (npm run build-pet / dist)
 scripts/publish-pet.mjs     publishes a built exe as a GitHub release (npm run publish-pet)
 scripts/new-pet.mjs         starts a pack;  scripts/check-pet.mjs  checks one
+scripts/claude-hook.mjs     the hook Claude Code runs: passes a session's report on to the pet
+scripts/claude-hooks.mjs    registers that hook in Claude Code's settings (npm run claude-hooks)
 scripts/remove_checker.py   cuts figures out of pictures with a painted checkerboard background
 scripts/cut_black.py        cuts a picture drawn on a black background
 scripts/wheel_rungs.py      spin frames for a pack's wheel drawn at an angle
@@ -303,6 +351,10 @@ tick loop.
 - The tray icon and `npm run shortcut` are Windows only (Electron reads `.ico` files only on
   Windows). Elsewhere the pet runs without a tray icon; quit it from its own right-click menu.
 - Voice is Thai only and hears only the phrases listed above.
+- Claude Code sessions: only sessions on this machine report (a cloud session does not read the
+  local settings, and `claude -p --bare` skips hooks). An interrupted turn sends no report, so
+  its mouse stays until the next prompt or until Claude Code's idle notice a minute later. The
+  hook needs this repository and Node, so the portable exe cannot connect by itself yet.
 - Voice has been measured with synthetic speech only (the Windows Thai voice, played through
   Chromium's fake microphone): 11 of 12 commands came out right, and "ตื่น" was heard as "เดิน".
 - The speech worker calls `_encode_input`, a method internal to transformers.js, so

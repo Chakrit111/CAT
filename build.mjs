@@ -34,6 +34,7 @@ try {
     build({ ...node, entryPoints: ['src/main/main.ts'], outfile: 'dist/main.js' }),
     build({ ...node, entryPoints: ['src/preload.ts'], outfile: 'dist/preload.js' }),
     build({ ...node, entryPoints: ['src/mouse-preload.ts'], outfile: 'dist/mouse-preload.js' }),
+    build({ ...node, entryPoints: ['src/overlay-preload.ts'], outfile: 'dist/overlay-preload.js' }),
     build({
       ...node,
       // transformers.js loads native addons (onnxruntime-node, sharp), so it is required
@@ -56,8 +57,20 @@ try {
       entryPoints: ['src/renderer/mouse.ts'],
       outfile: 'dist/mouse.js',
     }),
+    // The speech bubble and the strip of session mice (Claude Code sessions).
+    ...['bubble', 'field'].map((page) =>
+      build({
+        ...common,
+        platform: 'browser',
+        format: 'iife',
+        entryPoints: [`src/renderer/${page}.ts`],
+        outfile: `dist/${page}.js`,
+      }),
+    ),
     copyFile('src/renderer/index.html', 'dist/index.html'),
     copyFile('src/renderer/mouse.html', 'dist/mouse.html'),
+    copyFile('src/renderer/bubble.html', 'dist/bubble.html'),
+    copyFile('src/renderer/field.html', 'dist/field.html'),
   ]);
 } catch (err) {
   console.error('[build] failed:', err);

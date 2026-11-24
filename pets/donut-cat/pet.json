@@ -6,7 +6,7 @@
   "appId": "io.github.chakrit111.desktoppet",
   "version": "0.1.0",
   "update": { "repo": "Chakrit111/CAT" },
-  "features": { "voice": true, "hunt": true, "sounds": true },
+  "features": { "voice": true, "hunt": true, "sounds": true, "claude": true },
   "menu": {
     "walk": "Walk",
     "sit": "Sit",
@@ -30,6 +30,17 @@
       "walk": ["เดิน", "ไปเดิน", "เดินเล่น"],
       "idle": ["ตื่น", "ตื่นได้แล้ว", "หยุด"]
     }
+  },
+  "claude": {
+    "done": "{project} เสร็จแล้ว",
+    "failed": "{project} สะดุด มี error",
+    "permission": "{project} ขออนุญาตอยู่",
+    "waiting": "{project} รอคุณอยู่",
+    "statusWorking": "กำลังทำ",
+    "statusWaiting": "รอคุณ",
+    "statusDone": "เสร็จแล้ว",
+    "statusFailed": "error",
+    "statusIdle": "ว่าง"
   },
   "tuning": {}
 }
