@@ -13,6 +13,8 @@ interface Frame {
 export interface SpriteSet {
   manifest: SpriteManifest;
   frameCounts: Record<PetState, number>;
+  /** Empty rows above the pet in each state (DIP, the least of its frames): where a speech bubble can sit. */
+  headroom: Record<PetState, number>;
   /** Alpha hit-test. (x, y) are window-local DIP coordinates. */
   isOpaque(state: PetState, frame: number, flip: boolean, x: number, y: number): boolean;
 }
@@ -76,9 +78,21 @@ export function loadSprites(root: string, size: number, alphaThreshold: number):
     frameCounts[state] = frames[state].length;
   }
 
+  /** Rows from the top of a frame down to its first opaque pixel. */
+  const emptyRows = (mask: Uint8Array | null): number => {
+    if (mask === null) return 0;
+    const first = mask.findIndex((alpha) => alpha > alphaThreshold);
+    return first === -1 ? 0 : Math.floor(first / size);
+  };
+  const headroom = {} as Record<PetState, number>;
+  for (const state of PET_STATES) {
+    headroom[state] = Math.min(...frames[state].map((frame) => emptyRows(frame.mask)));
+  }
+
   return {
     manifest: { size, frames: urls },
     frameCounts,
+    headroom,
     isOpaque(state, frame, flip, x, y) {
       const px = Math.floor(flip ? size - 1 - x : x);
       const py = Math.floor(y);

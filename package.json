@@ -14,6 +14,7 @@
     "publish-pet": "node scripts/publish-pet.mjs",
     "new-pet": "node scripts/new-pet.mjs",
     "check-pet": "node scripts/check-pet.mjs",
+    "claude-hooks": "node scripts/claude-hooks.mjs",
     "import-sprites": "python -I scripts/fit_frames.py",
     "preview": "python -I scripts/contact_sheet.py"
   },

@@ -94,7 +94,27 @@ export interface WheelConfig {
   opening: number[];
 }
 
+/** Claude Code sessions (pet.json `features.claude`): bubbles, a mouse per session, the menu list. */
+export interface ClaudeConfig {
+  /**
+   * The pet listens on 127.0.0.1:<port> for what Claude Code's hooks report. Two pets running at
+   * once need different ports; pass the same number to `npm run claude-hooks -- install --port`.
+   */
+  port: number;
+  /** How long a bubble about a finished turn stays up. */
+  bubbleMs: number;
+  /** A bubble about a session that waits for the user stays this long, or until it is answered. */
+  waitingBubbleMs: number;
+  /** A session not heard from for this long was closed without saying so: forget it. */
+  forgetMs: number;
+  /** A session's mouse flees at this speed, px/s. Below hunt.runSpeed, so the cat always gets it. */
+  mouseFleeSpeed: number;
+  /** A mouse's label is cut to this many characters. */
+  labelMax: number;
+}
+
 export interface PetConfig {
+  claude: ClaudeConfig;
   /**
    * What the `run` state is: 'hunt' chases a mouse across the screen (the cat), 'wheel' runs in
    * place in a wheel drawn around the pet (the hamster).
@@ -126,6 +146,14 @@ export interface PetConfig {
  * pet.json (see pack.ts); sprites, sounds and the icon come from the pack's folder.
  */
 export const DEFAULT_CONFIG: PetConfig = {
+  claude: {
+    port: 47625,
+    bubbleMs: 7_000,
+    waitingBubbleMs: 20_000,
+    forgetMs: 12 * 60 * 60_000,
+    mouseFleeSpeed: 120,
+    labelMax: 28,
+  },
   runMode: 'hunt',
   // floor and centerX fit the wheel the app draws; a pack with its own wheel.png sets its own.
   wheel: { minMs: 6_000, maxMs: 12_000, scale: 0.7, turnsPerSecond: 1.2, floor: 0.9325, centerX: 0.5, hub: [], opening: [] },
