@@ -135,7 +135,10 @@ Claude Code sessions on this machine are doing:
   name over it: the name the Claude app shows in its list, or the project's folder name while a
   session has none yet. While the session waits for you the mouse stands still and its name turns
   amber. When the turn is done the cat goes and catches it; a session that is closed or fails just
-  sends its mouse off the screen. Count the mice to see how much is still running. A pet whose
+  sends its mouse off the screen. Count the mice to see how much is still running. With several
+  sessions the mice share the floor: each keeps to its own stretch, side by side, so they never
+  stand on each other and every name stays over its own mouse (a name too long for its stretch is
+  cut short). A pet whose
   `run` is a wheel shows the mice but does not catch them; with `"hunt": false` there are none.
 - **Menu.** The right-click menu (and the tray menu) lists every session with its status and how
   long it has been in it, those that need you first. Clicking a row repeats its bubble.

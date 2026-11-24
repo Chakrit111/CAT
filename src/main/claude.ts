@@ -17,6 +17,8 @@ const LABEL_ROOM = 6;
 const PRUNE_EVERY_MS = 60_000;
 /** With more than one thing to say, each bubble gets this long before the next takes its turn. */
 const BUBBLE_TURN_MS = 3_000;
+/** Two mice's stretches of floor keep this far apart. */
+const LANE_GAP = 8;
 
 export interface ClaudeHost {
   pack: PetPack;
@@ -53,6 +55,8 @@ interface Mouse {
   fate: 'stay' | 'catch' | 'leave';
   /** The cat is after it: the pet moves it now. */
   hunted: boolean;
+  /** Which stretch of the floor is its own, counted from the left. */
+  lane: number;
 }
 
 /**
@@ -119,6 +123,8 @@ export class ClaudeSessions {
   private fieldSent = '';
   private fieldAt = '';
   private readonly mice = new Map<string, Mouse>();
+  /** The mice the floor was last shared out between. */
+  private laneKey = '';
   /** Session mice exist only for pets that have a mouse at all; only a hunter catches them. */
   private readonly useMice: boolean;
   private readonly canCatch: boolean;
@@ -327,6 +333,7 @@ export class ClaudeSessions {
   private tickMice(dtMs: number, area: Rectangle, catCenterX: number): void {
     const { pet, pack } = this.host;
     const { hunt, claude, size } = pack.config;
+    const penMargin = Math.max(0, (size - hunt.mouseSize) / 2);
 
     // Sessions at work get a mouse; a mouse whose session stopped gets its fate.
     for (const session of this.store.list()) {
@@ -336,14 +343,12 @@ export class ClaudeSessions {
         if (!mouse) {
           mouse = {
             // Penned: it keeps clear of the edges by as much as the pet's own half-width, so a pounce can reach it.
-            prey: new Prey(hunt, area, catCenterX, Math.random, {
-              margin: Math.max(0, (size - hunt.mouseSize) / 2),
-              fleeSpeed: claude.mouseFleeSpeed,
-            }),
+            prey: new Prey(hunt, area, catCenterX, Math.random, { margin: penMargin, fleeSpeed: claude.mouseFleeSpeed }),
             label: '',
             waiting: false,
             fate: 'stay',
             hunted: false,
+            lane: 0,
           };
           this.mice.set(session.id, mouse);
         } else if (!mouse.hunted && mouse.fate !== 'stay') {
@@ -362,6 +367,8 @@ export class ClaudeSessions {
     for (const [id, mouse] of this.mice) {
       if (mouse.fate === 'stay' && !this.store.has(id)) this.release(mouse, 'leave'); // closed while at work
     }
+
+    this.shareFloor(area, penMargin);
 
     for (const [id, mouse] of this.mice) {
       if (mouse.hunted) {
@@ -399,6 +406,9 @@ export class ClaudeSessions {
         moving: mouse.prey.moving,
         label: mouse.label,
         waiting: mouse.waiting,
+        lane: mouse.prey.lane
+          ? [Math.round(mouse.prey.lane.lo - area.x), Math.round(mouse.prey.lane.hi + hunt.mouseSize - area.x)]
+          : null,
       })),
     };
     const sent = JSON.stringify(msg.mice);
@@ -412,11 +422,35 @@ export class ClaudeSessions {
     }
   }
 
+  /**
+   * Every mouse that is not leaving gets a stretch of the floor to itself, side by side: mice never
+   * stand on each other, and each name stays over its own mouse. The stretches are dealt out again
+   * only when a mouse comes or goes, in the order the mice stand in, so none has to cross another.
+   */
+  private shareFloor(area: Rectangle, penMargin: number): void {
+    const staying = [...this.mice.entries()].filter(([, mouse]) => mouse.fate !== 'leave');
+    const key = staying.map(([id]) => id).join('\n');
+    if (key !== this.laneKey) {
+      this.laneKey = key;
+      [...staying].sort(([, a], [, b]) => a.prey.x - b.prey.x).forEach(([, mouse], i) => (mouse.lane = i));
+    }
+    const { mouseSize } = this.host.pack.config.hunt;
+    const left = area.x + penMargin;
+    const each = Math.max(0, area.width - penMargin * 2) / Math.max(1, staying.length);
+    for (const [, mouse] of staying) {
+      const lo = left + mouse.lane * each + LANE_GAP / 2;
+      mouse.prey.lane = { lo, hi: Math.max(lo, left + (mouse.lane + 1) * each - LANE_GAP / 2 - mouseSize) };
+    }
+  }
+
   private release(mouse: Mouse, fate: 'catch' | 'leave'): void {
     mouse.fate = fate;
     mouse.waiting = false;
     mouse.prey.frozen = false;
-    if (fate === 'leave') mouse.prey.escape();
+    if (fate === 'leave') {
+      mouse.prey.lane = null;
+      mouse.prey.escape();
+    }
   }
 
   private hideField(): void {

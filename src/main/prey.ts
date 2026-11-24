@@ -27,6 +27,11 @@ export class Prey {
   moving = true;
   /** Set from outside: it stands where it is (its session waits for the user) until it flees or leaves. */
   frozen = false;
+  /**
+   * Set from outside for a penned mouse that shares the floor with others: the stretch of the pen
+   * its left edge keeps to, so two mice never stand on each other. null = the whole pen.
+   */
+  lane: { lo: number; hi: number } | null = null;
 
   private readonly fleeSpeed: number;
   /** A penned mouse ran into the edge of its pen on the last update: it is going nowhere. */
@@ -85,14 +90,18 @@ export class Prey {
     this.y = area.y + area.height - mouseSize;
     this.cornered = false;
 
-    // The stretch of floor it lives on: the whole screen, or its pen.
+    // The stretch of floor it lives on: the whole screen, its pen, or its own part of the pen.
     const margin = this.pen?.margin ?? 0;
-    const lo = area.x + margin;
-    const hi = Math.max(lo, area.x + area.width - mouseSize - margin);
+    let lo = area.x + margin;
+    let hi = Math.max(lo, area.x + area.width - mouseSize - margin);
+    if (this.pen && this.lane) {
+      lo = Math.min(Math.max(lo, this.lane.lo), hi);
+      hi = Math.max(lo, Math.min(hi, this.lane.hi));
+    }
 
     if (this.pen && this.mode !== 'escape') {
       if (this.x < lo || this.x > hi) {
-        // Still on its way in (or the screen changed under it): walk into the pen first.
+        // Still on its way in (or the screen or its stretch changed under it): walk there first.
         this.facing = this.x < lo ? 1 : -1;
         this.moving = true;
         this.x += this.facing * wanderSpeed * (dtMs / 1000);

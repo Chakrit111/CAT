@@ -105,6 +105,11 @@ export interface FieldMouse {
   label: string;
   /** The session waits for the user: the label stands out. */
   waiting: boolean;
+  /**
+   * The stretch of floor that is this mouse's own, [left, right] px from the strip's left edge: its
+   * label stays inside it. null = it is leaving and has none.
+   */
+  lane: [number, number] | null;
 }
 
 export interface FieldMessage {
