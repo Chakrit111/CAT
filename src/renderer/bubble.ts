@@ -14,17 +14,20 @@ function start(): void {
   const wrap = document.querySelector<HTMLElement>('#wrap');
   const bubble = document.querySelector<HTMLElement>('#bubble');
   const text = document.querySelector<HTMLElement>('#text');
+  const detail = document.querySelector<HTMLElement>('#detail');
   const tail = document.querySelector<HTMLElement>('#tail');
-  if (!wrap || !bubble || !text || !tail) throw new Error('Bubble markup missing');
+  if (!wrap || !bubble || !text || !detail || !tail) throw new Error('Bubble markup missing');
 
   let shown = '';
   window.overlay.onBubble((msg) => {
     // The same words again only mean the pet moved: slide, do not pop.
-    const key = `${msg.tone}:${msg.text}`;
+    const key = `${msg.tone}:${msg.text}\n${msg.detail}`;
     const fresh = key !== shown;
     if (fresh) {
       shown = key;
-      text.textContent = msg.text; // never markup: a session's name comes from outside the app
+      // Never markup: a session's name and the words of an answer come from outside the app.
+      text.textContent = msg.text;
+      detail.textContent = msg.detail;
       document.body.dataset['tone'] = msg.tone;
     }
 

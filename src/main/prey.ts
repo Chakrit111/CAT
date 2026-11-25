@@ -13,6 +13,11 @@ export interface PennedOptions {
   margin: number;
   /** Its speed when it flees, px/s: slower than the cat. */
   fleeSpeed: number;
+  /**
+   * Which screen edge it comes in from, and how far beyond that edge it starts (px), so mice that
+   * arrive together come in one behind the other. Left out: the edge farther from the cat.
+   */
+  enter?: { from: 'left' | 'right'; behind: number };
 }
 
 /**
@@ -32,6 +37,8 @@ export class Prey {
    * its left edge keeps to, so two mice never stand on each other. null = the whole pen.
    */
   lane: { lo: number; hi: number } | null = null;
+  /** Set from outside: another mouse stands where it is, so it does not stop to sniff here. */
+  crowded = false;
 
   private readonly fleeSpeed: number;
   /** A penned mouse ran into the edge of its pen on the last update: it is going nowhere. */
@@ -47,9 +54,10 @@ export class Prey {
     /** Set for a session's mouse; a mouse of the hunt game runs off the screen when chased. */
     private readonly pen?: PennedOptions,
   ) {
-    // Peeks in from whichever screen edge is farther from the cat.
-    const fromLeft = catCenterX > area.x + area.width / 2;
-    this.x = fromLeft ? area.x - cfg.mouseSize + 1 : area.x + area.width - 1;
+    // Peeks in from whichever screen edge is farther from the cat, unless it was told where.
+    const fromLeft = pen?.enter ? pen.enter.from === 'left' : catCenterX > area.x + area.width / 2;
+    const behind = pen?.enter?.behind ?? 0;
+    this.x = fromLeft ? area.x - cfg.mouseSize + 1 - behind : area.x + area.width - 1 + behind;
     this.y = area.y + area.height - cfg.mouseSize;
     this.facing = fromLeft ? 1 : -1;
     this.fleeSpeed = pen?.fleeSpeed ?? cfg.fleeSpeedMin + (cfg.fleeSpeedMax - cfg.fleeSpeedMin) * rng();
@@ -144,6 +152,7 @@ export class Prey {
   }
 
   private wander(dtMs: number): void {
+    if (this.pauseMs > 0 && this.crowded) this.pauseMs = 0;
     if (this.pauseMs > 0) {
       this.pauseMs -= dtMs;
       this.moving = this.pauseMs <= 0;
@@ -155,8 +164,9 @@ export class Prey {
 
     this.decideMs = this.nextDecision();
     const roll = this.rng();
-    if (roll < 0.35) this.pauseMs = 300 + 600 * this.rng();
-    else if (roll < 0.55) this.facing = this.facing === 1 ? -1 : 1;
+    if (roll < 0.35) {
+      if (!this.crowded) this.pauseMs = 300 + 600 * this.rng();
+    } else if (roll < 0.55) this.facing = this.facing === 1 ? -1 : 1;
   }
 
   private nextDecision(): number {

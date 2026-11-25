@@ -1,4 +1,4 @@
-import type { FieldMessage, FieldMouse, OverlayApi } from '../shared/types';
+import type { FieldMessage, FieldMouse, MouseActivity, OverlayApi } from '../shared/types';
 import { drawMouse, MOUSE_UNITS } from './draw-mouse';
 
 declare global {
@@ -13,8 +13,22 @@ const LABEL_PAD = 7;
 /** A name keeps this far from the ends of its mouse's stretch of floor, so two names never touch. */
 const LABEL_GAP = 2;
 
+/** The small picture before a name that says what the session is busy with. */
+const ACTIVITY_MARK: Record<MouseActivity, string> = {
+  none: '',
+  reading: '📖',
+  editing: '✏️',
+  running: '⚙️',
+  web: '🌐',
+  agent: '🤖',
+  tool: '🔧',
+};
+const MARK_GAP = 3;
+
 interface Label {
   mouse: FieldMouse;
+  /** The picture, the name (maybe cut short) and the time, as they are drawn. */
+  mark: string;
   text: string;
   x: number;
   width: number;
@@ -59,22 +73,34 @@ function start(): void {
     ctx.font = LABEL_FONT;
     const labels: Label[] = [];
     for (const mouse of field.mice) {
+      if (mouse.label === '') continue;
       const centre = mouse.x + field.size / 2;
       const [laneLeft, laneRight] = mouse.lane ?? [0, stripWidth];
-      const room = Math.max(0, laneRight - laneLeft - LABEL_GAP * 2);
-      const text = fit(mouse.label, room - LABEL_PAD * 2);
+      const room = Math.max(0, laneRight - laneLeft - LABEL_GAP * 2) - LABEL_PAD * 2;
+
+      // The name comes first: the time is dropped before the name is cut, the picture last of all.
+      const withNote = mouse.note === '' ? mouse.label : `${mouse.label} · ${mouse.note}`;
+      let mark = ACTIVITY_MARK[mouse.activity];
+      const markWidth = (): number => (mark === '' ? 0 : Math.ceil(ctx.measureText(mark).width) + MARK_GAP);
+      let text = withNote;
+      if (ctx.measureText(text).width + markWidth() > room) text = fit(mouse.label, room - markWidth());
+      if (text === '') {
+        mark = '';
+        text = fit(mouse.label, room);
+      }
       if (text === '') continue;
-      const width = Math.ceil(ctx.measureText(text).width) + LABEL_PAD * 2;
+
+      const width = Math.ceil(ctx.measureText(text).width) + markWidth() + LABEL_PAD * 2;
       // A mouse still on its way to its stretch (or leaving) keeps its name over itself meanwhile.
       const home = centre >= laneLeft && centre <= laneRight;
       const [left, right] = home ? [laneLeft + LABEL_GAP, laneRight - LABEL_GAP] : [1, stripWidth - 1];
-      labels.push({ mouse, text, width, x: Math.max(left, Math.min(centre - width / 2, right - width)) });
+      labels.push({ mouse, mark, text, width, x: Math.max(left, Math.min(centre - width / 2, right - width)) });
     }
     return labels;
   };
 
   /** A pill with the session's name over the mouse's back. */
-  const drawLabel = ({ mouse, text, x, width }: Label, now: number): void => {
+  const drawLabel = ({ mouse, mark, text, x, width }: Label, now: number): void => {
     ctx.font = LABEL_FONT;
     // The mouse fills the lower half of its square: the pill ends just above its ear.
     const y = field.labelHeight + field.size * 0.5 - LABEL_HEIGHT - 2;
@@ -96,8 +122,13 @@ function start(): void {
 
     ctx.fillStyle = '#2b2b33';
     ctx.textBaseline = 'middle';
-    ctx.textAlign = 'center';
-    ctx.fillText(text, x + width / 2, y + LABEL_HEIGHT / 2 + 0.5);
+    ctx.textAlign = 'left';
+    let at = x + LABEL_PAD;
+    if (mark !== '') {
+      ctx.fillText(mark, at, y + LABEL_HEIGHT / 2 + 0.5);
+      at += Math.ceil(ctx.measureText(mark).width) + MARK_GAP;
+    }
+    ctx.fillText(text, at, y + LABEL_HEIGHT / 2 + 0.5);
   };
 
   const draw = (now: number): void => {

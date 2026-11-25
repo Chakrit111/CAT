@@ -6,6 +6,7 @@ import {
   Menu,
   nativeImage,
   screen,
+  shell,
   Tray,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -23,8 +24,9 @@ import {
   type SoundMessage,
   type VoiceListenRequest,
 } from '../shared/types';
-import { ClaudeSessions, ON_ALL_DESKTOPS } from './claude';
+import { ClaudeSessions, MICE_MODES, ON_ALL_DESKTOPS, type MiceMode } from './claude';
 import { VoiceCommands } from './commands';
+import { opensAtLogin, setOpensAtLogin } from './login-mac';
 import { loadPack, PackError, type PetPack } from './pack';
 import { Pet, type CommandableState } from './pet';
 import { Sounds, type SoundName } from './sounds';
@@ -52,6 +54,8 @@ let appTitle = 'Desktop Pet';
 /** What the user can switch from the menus, kept in `<userData>/settings.json` between runs. */
 interface Settings {
   sounds: boolean;
+  /** How the mice of Claude Code sessions are shown. */
+  mice: MiceMode;
 }
 
 const settingsFile = (): string => path.join(app.getPath('userData'), 'settings.json');
@@ -59,13 +63,18 @@ const settingsFile = (): string => path.join(app.getPath('userData'), 'settings.
 function loadSettings(): Settings {
   try {
     const saved: unknown = JSON.parse(readFileSync(settingsFile(), 'utf8'));
-    if (typeof saved === 'object' && saved !== null && 'sounds' in saved && typeof saved.sounds === 'boolean') {
-      return { sounds: saved.sounds };
+    if (typeof saved === 'object' && saved !== null) {
+      // Each setting by itself: a file from an older version lacks the newer ones.
+      const { sounds, mice } = saved as Record<string, unknown>;
+      return {
+        sounds: typeof sounds === 'boolean' ? sounds : true,
+        mice: MICE_MODES.find((mode) => mode === mice) ?? 'names',
+      };
     }
   } catch {
     // First run, or the file is unreadable: use the defaults.
   }
-  return { sounds: true };
+  return { sounds: true, mice: 'names' };
 }
 
 function saveSettings(settings: Settings): void {
@@ -101,6 +110,55 @@ const updateScript = (pack: PetPack): string => path.join(app.getPath('temp'), `
 
 /** Login items exist on Windows and macOS only. */
 const LOGIN_ITEMS = process.platform === 'win32' || process.platform === 'darwin';
+/** A pet run from its project folder on macOS starts at login through a LaunchAgent (see login-mac.ts). */
+const LOGIN_AGENT = process.platform === 'darwin' && !app.isPackaged;
+
+/**
+ * The picture for the tray. Windows reads the pack's icon.ico as it is. Elsewhere Electron cannot
+ * read .ico files, but the pictures inside one are usually PNGs (scripts/make_icon.py writes them
+ * so): the largest is taken out, trimmed to the pet and sized for the macOS menu bar.
+ */
+function trayImage(iconFile: string): Electron.NativeImage {
+  if (process.platform === 'win32') return nativeImage.createFromPath(iconFile);
+  try {
+    const ico = readFileSync(iconFile);
+    let best: Buffer | undefined;
+    let bestWidth = 0;
+    const count = ico.readUInt16LE(4);
+    for (let i = 0; i < count; i++) {
+      const entry = 6 + i * 16;
+      const width = ico.readUInt8(entry) || 256; // 0 stands for 256
+      const data = ico.subarray(ico.readUInt32LE(entry + 12), ico.readUInt32LE(entry + 12) + ico.readUInt32LE(entry + 8));
+      const isPng = data.length > 8 && data.readUInt32BE(0) === 0x89504e47;
+      if (isPng && width > bestWidth) {
+        best = data;
+        bestWidth = width;
+      }
+    }
+    if (!best) return nativeImage.createEmpty();
+    let image = nativeImage.createFromBuffer(best);
+    const { width, height } = image.getSize();
+    const pixels = image.toBitmap();
+    if (pixels.length === width * height * 4) {
+      // Trim the empty margin, so the pet fills the little room a menu bar gives it.
+      let [left, top, right, bottom] = [width, height, -1, -1];
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if ((pixels[(y * width + x) * 4 + 3] ?? 0) < 16) continue;
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+      }
+      if (right >= left && bottom >= top) image = image.crop({ x: left, y: top, width: right - left + 1, height: bottom - top + 1 });
+    }
+    // 18 points high, drawn at twice that for sharp screens.
+    return nativeImage.createFromBuffer(image.resize({ height: 36, quality: 'best' }).toPNG(), { scaleFactor: 2 });
+  } catch {
+    return nativeImage.createEmpty();
+  }
+}
 
 /**
  * For tuning voice commands: with PET_VOICE_LOG_DIR set, every recording is kept there as a 16 kHz
@@ -282,8 +340,45 @@ function createPet(pack: PetPack): void {
   // --- Claude Code sessions ----------------------------------------------------
   // Packs without the feature open no port and no extra windows.
   const claude = pack.features.claude
-    ? new ClaudeSessions({ pack, pet, play, onChange: () => tray?.setContextMenu(trayMenu()) })
+    ? new ClaudeSessions({
+        pack,
+        pet,
+        play,
+        onChange: () => tray?.setContextMenu(trayMenu()),
+        // The link the Claude app itself uses for "continue this session". The id was checked to be
+        // of the app's own shape (sessions.ts), so nothing else can ride along in the link.
+        openInApp: (appId) => {
+          shell.openExternal(`claude://code/continue?session=${appId}`).catch((err: unknown) => {
+            console.warn('[claude] could not open the session in the Claude app:', err);
+          });
+        },
+      })
     : null;
+  claude?.setMice(settings.mice);
+
+  const setMice = (mode: MiceMode): void => {
+    settings.mice = mode;
+    saveSettings(settings);
+    claude?.setMice(mode);
+    tray?.setContextMenu(trayMenu());
+  };
+
+  /** "Session mice": names on all of them, only on those that wait for the user, or no mice at all. */
+  const miceItems = (): MenuItemConstructorOptions[] => {
+    if (!claude || !pack.features.hunt) return [];
+    const choice = (label: string, mode: MiceMode): MenuItemConstructorOptions => ({
+      label,
+      type: 'radio',
+      checked: settings.mice === mode,
+      click: () => setMice(mode),
+    });
+    return [
+      {
+        label: 'Session mice',
+        submenu: [choice('Show every name', 'names'), choice('Name only the ones waiting for you', 'quiet'), choice('No mice', 'hidden')],
+      },
+    ];
+  };
 
   const setSoundsOn = (on: boolean): void => {
     settings.sounds = on;
@@ -297,6 +392,7 @@ function createPet(pack: PetPack): void {
       ? [{ label: 'Sounds', type: 'checkbox', checked: settings.sounds, click: (item) => setSoundsOn(item.checked) }]
       : [];
 
+  const loginAgent = `com.desktop-pet.${pack.packageName}`;
   /** "Start with Windows": read from and written to the system's login items, so it is never out of date. */
   const startupItems = (): MenuItemConstructorOptions[] =>
     LOGIN_ITEMS
@@ -304,9 +400,18 @@ function createPet(pack: PetPack): void {
           {
             label: process.platform === 'win32' ? 'Start with Windows' : 'Open at login',
             type: 'checkbox',
-            checked: app.getLoginItemSettings(loginItem()).openAtLogin,
+            checked: LOGIN_AGENT ? opensAtLogin(loginAgent) : app.getLoginItemSettings(loginItem()).openAtLogin,
             click: (item) => {
-              app.setLoginItemSettings({ openAtLogin: item.checked, ...loginItem() });
+              if (LOGIN_AGENT) {
+                try {
+                  const { path: program, args } = loginItem();
+                  setOpensAtLogin(loginAgent, item.checked, [program, ...args]);
+                } catch (err) {
+                  console.warn('[desktop-pet] could not change "Open at login":', err);
+                }
+              } else {
+                app.setLoginItemSettings({ openAtLogin: item.checked, ...loginItem() });
+              }
               tray?.setContextMenu(trayMenu());
             },
           },
@@ -431,6 +536,7 @@ function createPet(pack: PetPack): void {
     if (mouseWin.isDestroyed()) return;
     // A session's mouse is drawn on the strip of session mice, not in the hunt game's window.
     const prey = claude?.owns(pet.prey) ? null : pet.prey;
+    if (prey && claude) prey.crowded = claude.occupied(prey.centerX);
     if (!prey) {
       if (mouseShown) {
         mouseWin.hide();
@@ -530,6 +636,7 @@ function createPet(pack: PetPack): void {
       ...(claude?.menuItems(true) ?? []),
       ...pack.menu.map(([state, label]) => command(label, state)),
       { type: 'separator' },
+      ...miceItems(),
       ...soundsItems(),
       ...startupItems(),
       ...updateItems(),
@@ -656,6 +763,7 @@ function createPet(pack: PetPack): void {
     Menu.buildFromTemplate([
       ...(claude?.menuItems(false) ?? []),
       { label: hidden ? 'Show' : 'Hide', click: () => setHidden(!hidden) },
+      ...miceItems(),
       ...soundsItems(),
       ...startupItems(),
       ...updateItems(),
@@ -667,14 +775,15 @@ function createPet(pack: PetPack): void {
   app.on('second-instance', unhide);
 
   const iconFile = path.join(pack.dir, 'icon.ico');
-  const trayIcon = nativeImage.createFromPath(iconFile);
+  const trayIcon = trayImage(iconFile);
   if (trayIcon.isEmpty()) {
     console.warn(`[desktop-pet] could not read ${iconFile}; running without a tray icon`);
   } else {
     tray = new Tray(trayIcon);
     tray.setToolTip(pack.productName);
     tray.setContextMenu(trayMenu());
-    tray.on('click', () => setHidden(!hidden));
+    // On macOS a click on a menu-bar icon opens its menu; Hide / Show is the menu's first choice there.
+    if (process.platform !== 'darwin') tray.on('click', () => setHidden(!hidden));
   }
 
   // --- lifecycle -----------------------------------------------------------

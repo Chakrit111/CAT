@@ -4,15 +4,20 @@
 // It is an observer only. It prints nothing (Claude Code would read stdout of some hooks as
 // context), always exits 0, and gives up after a moment if the pet is not running.
 //
-// What it passes on is the session's id and name, the event's name, the working directory and the
-// kind of notification. The prompt, tool calls and Claude's answers never leave this process.
+// What it passes on is the session's id and name, the event's name, the working directory, the
+// kind of notification, the name of the tool in use (not what it was given or returned), the
+// Claude desktop app's id for the session and the opening of Claude's final answer, for the pet's
+// bubble. It goes to the pet on this machine only
+// (127.0.0.1). The prompt and everything else in the report never leave this process.
 //
 //   node scripts/claude-hook.mjs [port]      (the report arrives on stdin)
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import http from 'node:http';
 
 const port = Number(process.env.PET_CLAUDE_PORT) || Number(process.argv[2]) || 47625;
-const KEEP = ['session_id', 'hook_event_name', 'cwd', 'notification_type', 'session_title'];
+const KEEP = ['session_id', 'hook_event_name', 'cwd', 'notification_type', 'session_title', 'tool_name', 'last_assistant_message', 'app_session_id'];
+/** The pet shows one line of the answer: the opening is all it is sent. */
+const ANSWER_OPENING = 600;
 
 /** A title record in a session's transcript, at the start of a line. */
 const TITLE_RECORD = '\n{"type":"custom-title"';
@@ -75,6 +80,13 @@ process.stdin.on('end', () => {
   }
   if (typeof report !== 'object' || report === null) return done();
   report.session_title = sessionTitle(report);
+  // A session of the Claude desktop app runs its hooks with the app's own id for it: with that the
+  // pet's menu can open the session in the app. A session in a terminal has none.
+  const appSession = process.env.CLAUDE_CODE_HOST_SESSION_ID;
+  report.app_session_id = typeof appSession === 'string' && /^local_[A-Za-z0-9-]{1,64}$/.test(appSession) ? appSession : undefined;
+  if (typeof report.last_assistant_message === 'string') {
+    report.last_assistant_message = report.last_assistant_message.trimStart().slice(0, ANSWER_OPENING);
+  }
   const body = JSON.stringify(Object.fromEntries(KEEP.filter((key) => typeof report[key] === 'string').map((key) => [key, report[key]])));
   const request = http.request(
     {
