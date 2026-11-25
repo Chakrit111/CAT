@@ -1,22 +1,32 @@
 import { BrowserWindow, type MenuItemConstructorOptions, type Rectangle } from 'electron';
 import type { Server } from 'node:http';
 import path from 'node:path';
-import { IPC, type BubbleMessage, type BubbleTone, type FieldMessage } from '../shared/types';
+import { IPC, type BubbleMessage, type BubbleTone, type FieldMessage, type MouseActivity } from '../shared/types';
 import type { PetPack } from './pack';
 import type { Pet } from './pet';
 import { Prey } from './prey';
 import { listenForReports } from './session-server';
-import { sessionRow, SessionStore, statusWord, type Session, type SessionChange } from './sessions';
+import { formatAge, sessionRow, SessionStore, statusWord, type Session, type SessionChange } from './sessions';
 import type { SoundName } from './sounds';
 
 /** The bubble's window. The bubble itself is as wide as its words, up to this. */
-const BUBBLE_WIDTH = 260;
-const BUBBLE_HEIGHT = 74;
+const BUBBLE_WIDTH = 300;
+/** Room for two lines of words and two of detail, and the tail. */
+const BUBBLE_HEIGHT = 112;
 /** Room in the strip of mice above the mouse squares, so a label never touches the strip's top edge. */
 const LABEL_ROOM = 6;
 const PRUNE_EVERY_MS = 60_000;
 /** With more than one thing to say, each bubble gets this long before the next takes its turn. */
 const BUBBLE_TURN_MS = 3_000;
+/** Two mice's stretches of floor keep this far apart. */
+const LANE_GAP = 8;
+
+/**
+ * What the user picked for the mice (the menu's "Session mice"). names: every mouse has its
+ * session's name over it. quiet: only a session that waits for the user is named. hidden: no mice.
+ */
+export type MiceMode = 'names' | 'quiet' | 'hidden';
+export const MICE_MODES: readonly MiceMode[] = ['names', 'quiet', 'hidden'];
 
 export interface ClaudeHost {
   pack: PetPack;
@@ -24,6 +34,8 @@ export interface ClaudeHost {
   play(name: SoundName): void;
   /** The list of sessions changed: a menu built ahead of time (the tray's) is out of date. */
   onChange(): void;
+  /** Show this session in the Claude desktop app. `appId` is the app's own id for it. */
+  openInApp(appId: string): void;
 }
 
 /** Where the pet is this tick. */
@@ -37,6 +49,8 @@ export interface PetBox {
 interface Bubble {
   sessionId: string;
   text: string;
+  /** A smaller second line; '' = none. */
+  detail: string;
   tone: BubbleTone;
   /** How much longer it is to be shown. */
   ms: number;
@@ -49,10 +63,14 @@ interface Bubble {
 interface Mouse {
   prey: Prey;
   label: string;
+  note: string;
+  activity: MouseActivity;
   waiting: boolean;
   fate: 'stay' | 'catch' | 'leave';
   /** The cat is after it: the pet moves it now. */
   hunted: boolean;
+  /** Which stretch of the floor is its own, counted from the left. */
+  lane: number;
 }
 
 /**
@@ -112,6 +130,8 @@ export class ClaudeSessions {
   private bubbleAt = '';
   private bubble: (Bubble & { since: number }) | null = null;
   private queue: Bubble[] = [];
+  /** Sessions that wait for the user: when (performance.now()) to say so again, and how many times more. */
+  private readonly reminders = new Map<string, { at: number; left: number }>();
 
   private readonly fieldWin: BrowserWindow;
   private fieldLoaded = false;
@@ -119,9 +139,12 @@ export class ClaudeSessions {
   private fieldSent = '';
   private fieldAt = '';
   private readonly mice = new Map<string, Mouse>();
+  /** The mice the floor was last shared out between. */
+  private laneKey = '';
   /** Session mice exist only for pets that have a mouse at all; only a hunter catches them. */
   private readonly useMice: boolean;
   private readonly canCatch: boolean;
+  private miceMode: MiceMode = 'names';
 
   constructor(private readonly host: ClaudeHost) {
     const { config, features } = host.pack;
@@ -173,12 +196,14 @@ export class ClaudeSessions {
   /** Once per tick of the pet, after the pet itself has moved. */
   tick(dtMs: number, area: Rectangle, pet: PetBox): void {
     if (this.hidden) return;
+    this.tickReminders();
     this.tickBubble(area, pet);
     if (this.useMice) this.tickMice(dtMs, area, pet.x + this.host.pack.config.size / 2);
   }
 
   /**
-   * The sessions as menu rows, those that need the user first. A click repeats the session's bubble.
+   * The sessions as menu rows, those that need the user first. A click opens the session in the
+   * Claude desktop app; for one that runs in a terminal it repeats the session's bubble.
    * @param withAge how long each has been in its status; leave out for a menu that is built ahead
    *                of time and would show a stale figure
    */
@@ -193,10 +218,25 @@ export class ClaudeSessions {
     return [
       { label: 'Claude sessions', enabled: false },
       ...sessions.map((session): MenuItemConstructorOptions => {
-        return { label: sessionRow(session, text, withAge ? now : null), click: () => this.repeat(session) };
+        return {
+          label: sessionRow(session, text, withAge ? now : null),
+          click: () => (session.appId !== '' ? this.host.openInApp(session.appId) : this.repeat(session)),
+        };
       }),
       { type: 'separator' },
     ];
+  }
+
+  /** The user's choice for the mice; takes effect on the next tick. */
+  setMice(mode: MiceMode): void {
+    this.miceMode = mode;
+  }
+
+  /** True where a session's mouse stands: the hunt game's mouse does not stop to sniff there. */
+  occupied(centerX: number): boolean {
+    const reach = this.host.pack.config.hunt.mouseSize;
+    for (const mouse of this.mice.values()) if (Math.abs(mouse.prey.centerX - centerX) < reach) return true;
+    return false;
   }
 
   setHidden(hidden: boolean): void {
@@ -221,14 +261,21 @@ export class ClaudeSessions {
   private changed(change: SessionChange): void {
     const { session } = change;
     const { claudeText: text, config } = this.host.pack;
-    console.log(`[claude] ${session.label}: ${change.kind}`);
+    console.log(`[claude] ${session.label}: ${change.kind}${session.appId !== '' ? ' (Claude app)' : ''}`);
     // Whatever was said or about to be said of this session is old news now.
     this.queue = this.queue.filter((bubble) => bubble.sessionId !== session.id);
     if (this.bubble?.sessionId === session.id) this.bubble = null;
 
+    const { remindMs, remindMax } = config.claude;
+    if (change.kind === 'waiting' && remindMs > 0 && remindMax > 0) {
+      this.reminders.set(session.id, { at: performance.now() + remindMs, left: remindMax });
+    } else {
+      this.reminders.delete(session.id);
+    }
+
     switch (change.kind) {
       case 'done':
-        this.say(session, text.done, 'done', config.claude.bubbleMs);
+        this.say(session, text.done, 'done', config.claude.bubbleMs, this.summary(session));
         this.host.play('meow');
         break;
       case 'failed':
@@ -246,9 +293,38 @@ export class ClaudeSessions {
     this.host.onChange();
   }
 
-  private say(session: Session, template: string, tone: BubbleTone, ms: number): void {
+  private say(session: Session, template: string, tone: BubbleTone, ms: number, detail = ''): void {
     if (this.hidden) return;
-    this.queue.push({ sessionId: session.id, text: template.replaceAll('{project}', session.label), tone, ms });
+    const text = template.replaceAll('{project}', session.label).replaceAll('{age}', formatAge(Date.now() - session.since));
+    this.queue.push({ sessionId: session.id, text, detail, tone, ms });
+  }
+
+  /** How the session's answer began, as the bubble's second line; '' when that is off or unknown. */
+  private summary(session: Session): string {
+    const max = this.host.pack.config.claude.summaryMax;
+    if (max <= 0 || session.failed) return '';
+    return session.summary.length > max ? `${session.summary.slice(0, max - 1).trimEnd()}…` : session.summary;
+  }
+
+  /** A session still waiting for the user is said again now and then, with the sound: the first bubble is easy to miss. */
+  private tickReminders(): void {
+    if (this.reminders.size === 0) return;
+    const now = performance.now();
+    const { claudeText: text, config } = this.host.pack;
+    for (const [id, reminder] of this.reminders) {
+      if (now < reminder.at) continue;
+      const session = this.store.get(id);
+      if (!session || session.status !== 'waiting') {
+        this.reminders.delete(id);
+        continue;
+      }
+      this.queue = this.queue.filter((bubble) => bubble.sessionId !== id);
+      this.say(session, text.reminder, 'waiting', config.claude.bubbleMs);
+      this.host.play('question');
+      reminder.left -= 1;
+      reminder.at = now + config.claude.remindMs;
+      if (reminder.left <= 0) this.reminders.delete(id);
+    }
   }
 
   /** From the menu: the session's status once more, as a bubble. */
@@ -267,7 +343,7 @@ export class ClaudeSessions {
     const tone: BubbleTone = session.status === 'waiting' ? 'waiting' : session.status === 'done' && session.failed ? 'failed' : 'done';
     this.queue = this.queue.filter((bubble) => bubble.sessionId !== session.id);
     this.bubble = null;
-    this.say(session, template, tone, config.claude.bubbleMs);
+    this.say(session, template, tone, config.claude.bubbleMs, session.status === 'done' ? this.summary(session) : '');
   }
 
   private tickBubble(area: Rectangle, pet: PetBox): void {
@@ -278,8 +354,8 @@ export class ClaudeSessions {
         this.bubble = null;
       } else if (this.queue.length > 0 && shown >= BUBBLE_TURN_MS) {
         // Something else to say: this one steps back and returns for the rest of its time.
-        const { sessionId, text, tone, ms } = this.bubble;
-        this.queue.push({ sessionId, text, tone, ms: ms - shown });
+        const { sessionId, text, detail, tone, ms } = this.bubble;
+        this.queue.push({ sessionId, text, detail, tone, ms: ms - shown });
         this.bubble = null;
       }
     }
@@ -303,8 +379,8 @@ export class ClaudeSessions {
       win.setBounds({ x, y, width: BUBBLE_WIDTH, height: BUBBLE_HEIGHT });
       this.bubbleAt = at;
     }
-    const msg: BubbleMessage = { text: this.bubble.text, tone: this.bubble.tone, tail: Math.round(middle - x) };
-    const sent = `${msg.tone}:${msg.tail}:${msg.text}`;
+    const msg: BubbleMessage = { text: this.bubble.text, detail: this.bubble.detail, tone: this.bubble.tone, tail: Math.round(middle - x) };
+    const sent = `${msg.tone}:${msg.tail}:${msg.text}\n${msg.detail}`;
     if (sent !== this.bubbleSent) {
       win.webContents.send(IPC.bubble, msg);
       this.bubbleSent = sent;
@@ -327,23 +403,29 @@ export class ClaudeSessions {
   private tickMice(dtMs: number, area: Rectangle, catCenterX: number): void {
     const { pet, pack } = this.host;
     const { hunt, claude, size } = pack.config;
+    const penMargin = Math.max(0, (size - hunt.mouseSize) / 2);
 
     // Sessions at work get a mouse; a mouse whose session stopped gets its fate.
+    const now = Date.now();
     for (const session of this.store.list()) {
       const atWork = session.status === 'working' || session.status === 'waiting';
       let mouse = this.mice.get(session.id);
-      if (atWork) {
+      if (atWork && this.miceMode !== 'hidden') {
         if (!mouse) {
           mouse = {
             // Penned: it keeps clear of the edges by as much as the pet's own half-width, so a pounce can reach it.
             prey: new Prey(hunt, area, catCenterX, Math.random, {
-              margin: Math.max(0, (size - hunt.mouseSize) / 2),
+              margin: penMargin,
               fleeSpeed: claude.mouseFleeSpeed,
+              enter: this.entrance(area, catCenterX),
             }),
             label: '',
+            note: '',
+            activity: 'none',
             waiting: false,
             fate: 'stay',
             hunted: false,
+            lane: 0,
           };
           this.mice.set(session.id, mouse);
         } else if (!mouse.hunted && mouse.fate !== 'stay') {
@@ -351,17 +433,23 @@ export class ClaudeSessions {
           mouse.fate = 'stay';
           mouse.prey.lure();
         }
-        // Every tick: the session's name can arrive, or change, while its mouse is out.
-        mouse.label = session.label.length > claude.labelMax ? `${session.label.slice(0, claude.labelMax - 1)}…` : session.label;
         mouse.waiting = session.status === 'waiting' && mouse.fate === 'stay' && !mouse.hunted;
         mouse.prey.frozen = mouse.waiting;
+        // Every tick: the session's name can arrive, or change, while its mouse is out.
+        const named = this.miceMode === 'names' || mouse.waiting;
+        mouse.label = !named ? '' : session.label.length > claude.labelMax ? `${session.label.slice(0, claude.labelMax - 1)}…` : session.label;
+        mouse.note = named ? formatAge(now - session.turnSince, true) : '';
+        mouse.activity = named && session.status === 'working' ? session.activity : 'none';
       } else if (mouse && mouse.fate === 'stay') {
-        this.release(mouse, session.status === 'done' && !session.failed && this.canCatch ? 'catch' : 'leave');
+        // Its turn is over, or the user wants no mice.
+        this.release(mouse, !atWork && session.status === 'done' && !session.failed && this.canCatch ? 'catch' : 'leave');
       }
     }
     for (const [id, mouse] of this.mice) {
       if (mouse.fate === 'stay' && !this.store.has(id)) this.release(mouse, 'leave'); // closed while at work
     }
+
+    this.shareFloor(area, penMargin);
 
     for (const [id, mouse] of this.mice) {
       if (mouse.hunted) {
@@ -398,7 +486,12 @@ export class ClaudeSessions {
         flip: mouse.prey.facing === -1,
         moving: mouse.prey.moving,
         label: mouse.label,
+        note: mouse.note,
+        activity: mouse.activity,
         waiting: mouse.waiting,
+        lane: mouse.prey.lane
+          ? [Math.round(mouse.prey.lane.lo - area.x), Math.round(mouse.prey.lane.hi + hunt.mouseSize - area.x)]
+          : null,
       })),
     };
     const sent = JSON.stringify(msg.mice);
@@ -412,11 +505,56 @@ export class ClaudeSessions {
     }
   }
 
+  /**
+   * Where a new mouse comes in: from the side with fewer mice, so the floor fills from both ends,
+   * and behind any mouse still on its way in from that side, so several that start at once (the
+   * pet was just opened) walk in as a line instead of a heap.
+   */
+  private entrance(area: Rectangle, catCenterX: number): { from: 'left' | 'right'; behind: number } {
+    const middle = area.x + area.width / 2;
+    const count = { left: 0, right: 0 };
+    const outside = { left: 0, right: 0 };
+    for (const mouse of this.mice.values()) {
+      if (mouse.fate === 'leave') continue;
+      const centre = mouse.prey.centerX;
+      count[centre < middle ? 'left' : 'right'] += 1;
+      if (centre < area.x) outside.left += 1;
+      else if (centre > area.x + area.width) outside.right += 1;
+    }
+    // Even: the side farther from the cat, as a mouse of the hunt game does.
+    const from = count.left === count.right ? (catCenterX > middle ? 'left' : 'right') : count.left < count.right ? 'left' : 'right';
+    return { from, behind: outside[from] * (this.host.pack.config.hunt.mouseSize + LANE_GAP) };
+  }
+
+  /**
+   * Every mouse that is not leaving gets a stretch of the floor to itself, side by side: mice never
+   * stand on each other, and each name stays over its own mouse. The stretches are dealt out again
+   * only when a mouse comes or goes, in the order the mice stand in, so none has to cross another.
+   */
+  private shareFloor(area: Rectangle, penMargin: number): void {
+    const staying = [...this.mice.entries()].filter(([, mouse]) => mouse.fate !== 'leave');
+    const key = staying.map(([id]) => id).join('\n');
+    if (key !== this.laneKey) {
+      this.laneKey = key;
+      [...staying].sort(([, a], [, b]) => a.prey.x - b.prey.x).forEach(([, mouse], i) => (mouse.lane = i));
+    }
+    const { mouseSize } = this.host.pack.config.hunt;
+    const left = area.x + penMargin;
+    const each = Math.max(0, area.width - penMargin * 2) / Math.max(1, staying.length);
+    for (const [, mouse] of staying) {
+      const lo = left + mouse.lane * each + LANE_GAP / 2;
+      mouse.prey.lane = { lo, hi: Math.max(lo, left + (mouse.lane + 1) * each - LANE_GAP / 2 - mouseSize) };
+    }
+  }
+
   private release(mouse: Mouse, fate: 'catch' | 'leave'): void {
     mouse.fate = fate;
     mouse.waiting = false;
     mouse.prey.frozen = false;
-    if (fate === 'leave') mouse.prey.escape();
+    if (fate === 'leave') {
+      mouse.prey.lane = null;
+      mouse.prey.escape();
+    }
   }
 
   private hideField(): void {

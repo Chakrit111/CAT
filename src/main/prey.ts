@@ -13,6 +13,11 @@ export interface PennedOptions {
   margin: number;
   /** Its speed when it flees, px/s: slower than the cat. */
   fleeSpeed: number;
+  /**
+   * Which screen edge it comes in from, and how far beyond that edge it starts (px), so mice that
+   * arrive together come in one behind the other. Left out: the edge farther from the cat.
+   */
+  enter?: { from: 'left' | 'right'; behind: number };
 }
 
 /**
@@ -27,6 +32,13 @@ export class Prey {
   moving = true;
   /** Set from outside: it stands where it is (its session waits for the user) until it flees or leaves. */
   frozen = false;
+  /**
+   * Set from outside for a penned mouse that shares the floor with others: the stretch of the pen
+   * its left edge keeps to, so two mice never stand on each other. null = the whole pen.
+   */
+  lane: { lo: number; hi: number } | null = null;
+  /** Set from outside: another mouse stands where it is, so it does not stop to sniff here. */
+  crowded = false;
 
   private readonly fleeSpeed: number;
   /** A penned mouse ran into the edge of its pen on the last update: it is going nowhere. */
@@ -42,9 +54,10 @@ export class Prey {
     /** Set for a session's mouse; a mouse of the hunt game runs off the screen when chased. */
     private readonly pen?: PennedOptions,
   ) {
-    // Peeks in from whichever screen edge is farther from the cat.
-    const fromLeft = catCenterX > area.x + area.width / 2;
-    this.x = fromLeft ? area.x - cfg.mouseSize + 1 : area.x + area.width - 1;
+    // Peeks in from whichever screen edge is farther from the cat, unless it was told where.
+    const fromLeft = pen?.enter ? pen.enter.from === 'left' : catCenterX > area.x + area.width / 2;
+    const behind = pen?.enter?.behind ?? 0;
+    this.x = fromLeft ? area.x - cfg.mouseSize + 1 - behind : area.x + area.width - 1 + behind;
     this.y = area.y + area.height - cfg.mouseSize;
     this.facing = fromLeft ? 1 : -1;
     this.fleeSpeed = pen?.fleeSpeed ?? cfg.fleeSpeedMin + (cfg.fleeSpeedMax - cfg.fleeSpeedMin) * rng();
@@ -85,14 +98,18 @@ export class Prey {
     this.y = area.y + area.height - mouseSize;
     this.cornered = false;
 
-    // The stretch of floor it lives on: the whole screen, or its pen.
+    // The stretch of floor it lives on: the whole screen, its pen, or its own part of the pen.
     const margin = this.pen?.margin ?? 0;
-    const lo = area.x + margin;
-    const hi = Math.max(lo, area.x + area.width - mouseSize - margin);
+    let lo = area.x + margin;
+    let hi = Math.max(lo, area.x + area.width - mouseSize - margin);
+    if (this.pen && this.lane) {
+      lo = Math.min(Math.max(lo, this.lane.lo), hi);
+      hi = Math.max(lo, Math.min(hi, this.lane.hi));
+    }
 
     if (this.pen && this.mode !== 'escape') {
       if (this.x < lo || this.x > hi) {
-        // Still on its way in (or the screen changed under it): walk into the pen first.
+        // Still on its way in (or the screen or its stretch changed under it): walk there first.
         this.facing = this.x < lo ? 1 : -1;
         this.moving = true;
         this.x += this.facing * wanderSpeed * (dtMs / 1000);
@@ -135,6 +152,7 @@ export class Prey {
   }
 
   private wander(dtMs: number): void {
+    if (this.pauseMs > 0 && this.crowded) this.pauseMs = 0;
     if (this.pauseMs > 0) {
       this.pauseMs -= dtMs;
       this.moving = this.pauseMs <= 0;
@@ -146,8 +164,9 @@ export class Prey {
 
     this.decideMs = this.nextDecision();
     const roll = this.rng();
-    if (roll < 0.35) this.pauseMs = 300 + 600 * this.rng();
-    else if (roll < 0.55) this.facing = this.facing === 1 ? -1 : 1;
+    if (roll < 0.35) {
+      if (!this.crowded) this.pauseMs = 300 + 600 * this.rng();
+    } else if (roll < 0.55) this.facing = this.facing === 1 ? -1 : 1;
   }
 
   private nextDecision(): number {

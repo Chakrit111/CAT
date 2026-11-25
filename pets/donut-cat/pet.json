@@ -36,6 +36,7 @@
     "failed": "{project} สะดุด มี error",
     "permission": "{project} ขออนุญาตอยู่",
     "waiting": "{project} รอคุณอยู่",
+    "reminder": "{project} ยังรอคุณอยู่ ({age})",
     "statusWorking": "กำลังทำ",
     "statusWaiting": "รอคุณ",
     "statusDone": "เสร็จแล้ว",

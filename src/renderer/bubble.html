@@ -66,6 +66,20 @@
         -webkit-line-clamp: 2;
         overflow: hidden;
       }
+      /* How the answer began: smaller and quieter, under the words. Two lines at most. */
+      #detail {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        margin-top: 2px;
+        font-weight: 400;
+        font-size: 12px;
+        color: #5c5c68;
+      }
+      #detail:empty {
+        display: none;
+      }
       /* A square on its corner, half inside the bubble: the half that sticks out is the tail. */
       #tail {
         position: absolute;
@@ -82,7 +96,7 @@
   </head>
   <body>
     <div id="wrap">
-      <div id="bubble"><span id="text"></span></div>
+      <div id="bubble"><span id="text"></span><span id="detail"></span></div>
       <div id="tail"></div>
     </div>
     <script src="./bubble.js"></script>

@@ -9,7 +9,7 @@ It wanders along the taskbar, hunts a mouse, and takes spoken commands in Thai.
 npm install
 npm start          # build + launch
 npm run typecheck  # tsc --noEmit
-npm run shortcut   # Windows: build + put a "Desktop Pet" shortcut on the desktop
+npm run shortcut   # Windows, macOS: build + put a "Desktop Pet" shortcut on the desktop
 npm run dist       # Windows: build release/donut-cat/Desktop-Pet-<version>-portable.exe
 ```
 
@@ -22,7 +22,8 @@ Requires Node 22.12+ (Electron 45). Quit from the right-click menu on the pet or
 After `npm install`, `npm run shortcut` once gives you a desktop shortcut that starts the pet
 without a terminal. The shortcut runs the last build and points at this folder, so run
 `npm run shortcut` again after changing code or moving the folder. Opening it while the pet is
-already running brings a hidden pet back instead of starting a second one.
+already running brings a hidden pet back instead of starting a second one. On macOS the shortcut
+is a small app, `~/Desktop/Desktop Pet.app`, made with tools every Mac has.
 
 ### Portable .exe
 
@@ -37,6 +38,11 @@ exe; it is downloaded on first use, as above, and shared with `npm start`.
 whichever copy is running: the portable exe at its own path (so keep the exe where it is), or, in
 development, `electron.exe` with this folder. Turn it off from the same menu item; it is an
 ordinary entry under Settings → Apps → Startup.
+
+On macOS the menu item is **Open at login**. For a pet run from this folder it writes a
+LaunchAgent, `~/Library/LaunchAgents/com.desktop-pet.<packageName>.plist`, that starts Electron
+with this folder when you sign in (macOS lists it under System Settings → General → Login Items
+& Extensions); turning it off removes the file. Turn it off and on again after moving the folder.
 
 The exe is not code-signed, so on another machine Windows SmartScreen may say "Windows protected
 your PC"; choose More info → Run anyway. `release/` is not committed: the exe is over GitHub's
@@ -53,8 +59,9 @@ use the microphone (Settings → Privacy & security → Microphone).
 | Click | Wakes it if asleep, otherwise rolls or chases the donut |
 | Drag | Pick it up; it falls back to the floor when released (works across displays) |
 | Right-click | Listens for a spoken command. Opens the menu instead if nothing clear was said, on a second right-click, or while the speech model is still loading |
-| Menu | Walk / Sit / Stand / Sleep / Roll over / Jump / Chase the donut / Chase the mouse / Sounds (on/off) / Start with Windows (on/off) / Quit |
-| Tray icon (Windows) | Click hides or shows the pet. Right-click for Hide / Show, Sounds, Start with Windows and Quit. New tray icons start under the `^` of hidden icons; drag it onto the taskbar to keep it in view |
+| Menu | Walk / Sit / Stand / Sleep / Roll over / Jump / Chase the donut / Chase the mouse / Session mice / Sounds (on/off) / Start with Windows or Open at login (on/off) / Quit |
+| Tray icon (Windows) | Click hides or shows the pet. Right-click for Hide / Show, Session mice, Sounds, Start with Windows and Quit. New tray icons start under the `^` of hidden icons; drag it onto the taskbar to keep it in view |
+| Menu-bar icon (macOS) | The pet's picture in the menu bar. Click for the list of Claude sessions, Hide / Show, Session mice, Sounds, Open at login and Quit |
 
 Transparent pixels are click-through; only the cat itself receives the mouse.
 
@@ -130,15 +137,27 @@ Claude Code sessions on this machine are doing:
 
 - **Bubble.** A speech bubble over the pet when a session finishes its turn (green), needs you
   for a permission prompt or an answer (amber, up to 20 s or until you answer) or stops on an
-  error (red). With several things to say, the bubbles take turns.
+  error (red). With several things to say, the bubbles take turns. A finished turn's bubble has a
+  second, smaller line: how Claude's answer began (its first sentence, without Markdown marks).
+  A session that keeps waiting for you is said again every 3 minutes, with the sound, up to 5
+  times, so one that asked while you were away is not missed.
 - **A mouse per session.** Every session at work has a mouse on the floor with the session's
   name over it: the name the Claude app shows in its list, or the project's folder name while a
   session has none yet. While the session waits for you the mouse stands still and its name turns
   amber. When the turn is done the cat goes and catches it; a session that is closed or fails just
-  sends its mouse off the screen. Count the mice to see how much is still running. A pet whose
+  sends its mouse off the screen. Count the mice to see how much is still running. With several
+  sessions the mice share the floor: each keeps to its own stretch, side by side, so they never
+  stand on each other and every name stays over its own mouse (a name too long for its stretch is
+  cut short). Mice that start together walk in from both sides, one behind the other. After the
+  name comes how long the turn has taken ("· 3m", left out first when room is short), and before
+  it a small picture of what the session is doing: 📖 reading, ✏️ editing, ⚙️ running a command,
+  🌐 the web, 🤖 a subagent, 🔧 another tool. A pet whose
   `run` is a wheel shows the mice but does not catch them; with `"hunt": false` there are none.
-- **Menu.** The right-click menu (and the tray menu) lists every session with its status and how
-  long it has been in it, those that need you first. Clicking a row repeats its bubble.
+- **Session mice** in the menus picks how much of this is on screen: every name, a name only on
+  the mice that wait for you, or no mice at all (the bubbles stay). The choice is kept between runs.
+- **Menu.** The right-click menu (and the tray or menu-bar menu) lists every session with its
+  status and how long it has been in it, those that need you first. Clicking a row opens that
+  session in the Claude desktop app; for a session that runs in a terminal it repeats the bubble.
 
 Sessions report through Claude Code's hooks. Connect them once:
 
@@ -154,16 +173,28 @@ it was (`settings.json.before-desktop-pet`) and writes the full paths of this No
 Node. Sessions that are already open pick the hooks up when they are restarted.
 
 The hook is an observer: it runs in the background (`async`), prints nothing, always exits 0 and
-gives up at once when the pet is not running. It passes on five things of each report: the
-session's id and name, the event name, the working directory and the notification type. The name
-comes from the report or, when the report has none, from the title record the app keeps in the
-session's transcript; nothing else of the transcript is used. Prompts, tool calls and answers stay
-in Claude Code. The pet listens on `127.0.0.1:47625` only and takes nothing but
-those reports; `tuning.claude.port` changes the port (then install with `--port <n>`).
+gives up at once when the pet is not running. It passes on these things of each report: the
+session's id and name, the event name, the working directory, the notification type, the name of
+the tool in use (for the picture on the mouse; never what the tool was given or returned), the
+Claude desktop app's own id for the session (for opening it from the menu) and the first 600
+characters of Claude's final answer (for the bubble's second line; `tuning.claude.summaryMax: 0`
+stops the pet showing it). The name comes from the report or, when the report has none, from the
+title record the app keeps in the session's transcript; nothing else of the transcript is used.
+Prompts, what tools read and write, and the rest of the answers stay in Claude Code. The pet
+listens on `127.0.0.1:47625` only and takes nothing but those reports, which never leave this
+machine; `tuning.claude.port` changes the port (then install with `--port <n>`).
+
+The picture on a mouse shows the tool that is running when the hook is registered for
+`PreToolUse`; `install` from before that was added registered only finished tools, and then the
+picture is the last tool that ran. Run `npm run claude-hooks -- install` again to add it.
 
 The words are the pack's: the `claude` section of pet.json sets the bubbles (`done`, `failed`,
-`permission`, `waiting`, with `{project}` for the session's name) and the menu's status words
-(`statusWorking`, `statusWaiting`, `statusDone`, `statusFailed`, `statusIdle`).
+`permission`, `waiting`, `reminder`, with `{project}` for the session's name and, in `reminder`,
+`{age}` for how long it has waited) and the menu's status words (`statusWorking`,
+`statusWaiting`, `statusDone`, `statusFailed`, `statusIdle`). Under `tuning.claude`:
+`remindMs` and `remindMax` (how often and how many times a waiting session is said again; 0 =
+once only), `summaryMax` (length of the bubble's second line), `labelMax`, `bubbleMs`,
+`waitingBubbleMs`.
 
 ## Sprites
 
@@ -309,6 +340,7 @@ src/main/whisper-worker.ts  Whisper, in a utility process
 src/main/sessions.ts        Claude Code sessions: what each one is doing (pure)
 src/main/session-server.ts  the local port the hooks report to
 src/main/claude.ts          bubble, a mouse per session and the menu rows
+src/main/login-mac.ts       "Open at login" on macOS for a pet run from this folder (LaunchAgent)
 src/main/config.ts          the engine's default tuning
 src/main/pack.ts            loads and checks a pet pack (dist/pet/pet.json)
 src/main/update.ts          self-update of the portable exe from GitHub Releases
@@ -333,7 +365,7 @@ scripts/fit_frames.py       fits artwork into frames (npm run import-sprites)
 src/shared/wheel.ts         where the running wheel and the pet inside it are drawn
 scripts/contact_sheet.py    one image of every state (npm run preview)
 scripts/make_icon.py        multi-size .ico from a frame
-scripts/shortcut.mjs        makes the Windows desktop shortcut (npm run shortcut)
+scripts/shortcut.mjs        makes the desktop shortcut, Windows and macOS (npm run shortcut)
 scripts/meow-synth.mjs      synthesises cartoon cat sounds
 ```
 
@@ -348,8 +380,12 @@ tick loop.
 ## Known limits
 
 - Native Wayland: Electron cannot read the global cursor or position windows there. Use X11 / XWayland.
-- The tray icon and `npm run shortcut` are Windows only (Electron reads `.ico` files only on
-  Windows). Elsewhere the pet runs without a tray icon; quit it from its own right-click menu.
+- Linux has no tray icon and no `npm run shortcut`; quit the pet from its own right-click menu.
+  On macOS the menu-bar picture is taken from the PNG inside `icon.ico` (what
+  `scripts/make_icon.py` writes); an `.ico` without one gives no menu-bar icon.
+- Opening a session from the menu uses the link the Claude desktop app has for "continue this
+  session" (`claude://code/continue?session=...`) and the id the app gives its sessions' hooks.
+  Both are the app's own business and may change; then the click does nothing.
 - Voice is Thai only and hears only the phrases listed above.
 - Claude Code sessions: only sessions on this machine report (a cloud session does not read the
   local settings, and `claude -p --bare` skips hooks). An interrupted turn sends no report, so

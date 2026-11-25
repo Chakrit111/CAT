@@ -111,6 +111,18 @@ export interface ClaudeConfig {
   mouseFleeSpeed: number;
   /** A mouse's label is cut to this many characters. */
   labelMax: number;
+  /**
+   * A session that keeps waiting for the user is announced again every this long, with a sound.
+   * 0 = it is said once only.
+   */
+  remindMs: number;
+  /** ...this many times at most, so a session left overnight goes quiet. */
+  remindMax: number;
+  /**
+   * The bubble about a finished turn also shows how Claude's answer began, cut to this many
+   * characters. 0 = the bubble only says that it is done.
+   */
+  summaryMax: number;
 }
 
 export interface PetConfig {
@@ -153,6 +165,9 @@ export const DEFAULT_CONFIG: PetConfig = {
     forgetMs: 12 * 60 * 60_000,
     mouseFleeSpeed: 120,
     labelMax: 28,
+    remindMs: 180_000,
+    remindMax: 5,
+    summaryMax: 90,
   },
   runMode: 'hunt',
   // floor and centerX fit the wheel the app draws; a pack with its own wheel.png sets its own.

@@ -90,10 +90,15 @@ export type BubbleTone = 'done' | 'waiting' | 'failed';
 
 export interface BubbleMessage {
   text: string;
+  /** A second, smaller line under the text (how the answer began); '' = none. */
+  detail: string;
   tone: BubbleTone;
   /** Where the bubble's tail points (the pet's middle), px from the bubble window's left edge. */
   tail: number;
 }
+
+/** What a session at work is busy with (see Activity in src/main/sessions.ts). */
+export type MouseActivity = 'none' | 'reading' | 'editing' | 'running' | 'web' | 'agent' | 'tool';
 
 /** One session's mouse on the strip along the floor. */
 export interface FieldMouse {
@@ -101,10 +106,19 @@ export interface FieldMouse {
   x: number;
   flip: boolean;
   moving: boolean;
-  /** The session's name, written above the mouse. */
+  /** The session's name, written above the mouse; '' = no label. */
   label: string;
+  /** How long its turn has taken ("3m"), written after the name when there is room; '' = nothing. */
+  note: string;
+  /** What it is busy with: a small picture before the name. */
+  activity: MouseActivity;
   /** The session waits for the user: the label stands out. */
   waiting: boolean;
+  /**
+   * The stretch of floor that is this mouse's own, [left, right] px from the strip's left edge: its
+   * label stays inside it. null = it is leaving and has none.
+   */
+  lane: [number, number] | null;
 }
 
 export interface FieldMessage {
